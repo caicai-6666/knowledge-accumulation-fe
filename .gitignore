@@ -1,0 +1,57 @@
+# 默认忽略；只开放构建部署、项目说明和必要目录。
+/*
+!/.gitignore
+!/.env.example
+!/AGENTS.md
+!/README.md
+!/index.html
+!/package.json
+!/package-lock.json
+!/vite.config.js
+!/Dockerfile
+!/.dockerignore
+!/nginx.conf
+
+# Vite 配置直接引用的模块。
+!/config/
+/config/*
+!/config/developmentMapping.js
+!/config/developerAuthentication.js
+
+# 业务源码及必要的空目录占位；资源只保留当前实际引用的文件。
+!/src/
+/src/**
+!/src/**/
+!/src/**/*.js
+!/src/**/*.vue
+!/src/**/*.css
+!/src/**/.gitkeep
+!/src/assets/contract.webp
+!/src/assets/exploration.webp
+!/src/assets/external-expert.webp
+!/src/assets/logo.webp
+!/src/assets/online-search.webp
+!/src/assets/registry.webp
+!/src/assets/sleep.webp
+!/src/assets/surprise.webp
+
+# 运行时公共脚本。
+!/public/
+/public/**
+!/public/icon-cache-sw.js
+
+# 项目描述文档和文档目录层级。
+!/description/
+/description/**
+!/description/**/
+!/description/**/*.md
+!/description/**/.gitkeep
+
+# 即使位于开放目录中，也不提交本机配置、日志或生成物。
+**/.DS_Store
+**/*.log
+**/*.local
+**/node_modules/
+**/dist/
+**/.env*
+!/.env.example
