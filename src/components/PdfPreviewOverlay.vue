@@ -1,9 +1,16 @@
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onDeactivated, ref, watch } from 'vue'
+import { t } from '../i18n/index.js'
+import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onDeactivated, onMounted, ref, watch } from 'vue'
 import PdfLoadingAnimation from './PdfLoadingAnimation.vue'
+const PdfCanvasViewer = defineAsyncComponent(() => import('./PdfCanvasViewer.vue'))
+const mobileQuery = typeof window !== 'undefined' ? window.matchMedia?.('(max-width: 900px)') : null
+const mobile = ref(Boolean(mobileQuery?.matches))
+function updateMobile() { mobile.value = Boolean(mobileQuery?.matches) }
+onMounted(() => mobileQuery?.addEventListener('change', updateMobile))
 
-const props = defineProps({ open: Boolean, loading: Boolean, error: { type: String, default: '' }, src: { type: String, default: '' }, label: { type: String, default: 'PDF 文档' } })
+const props = defineProps({ open: Boolean, loading: Boolean, error: { type: String, default: '' }, src: { type: String, default: '' }, label: { type: String, default: '' } })
 const emit = defineEmits(['close'])
+const previewLabel = computed(() => props.label || t('PDF 文档'))
 const initialized = ref(false)
 const closeButton = ref(null)
 const frameLoaded = ref(false)
@@ -13,22 +20,27 @@ let focusBeforeOpen
 let background
 let wasInert = false
 let listening = false
+let loadTimer
+function clearLoadTimer() { clearTimeout(loadTimer); loadTimer = undefined }
+function markLoaded() { clearLoadTimer(); frameLoaded.value = true }
+function markFailed() { clearLoadTimer(); failed.value = true }
 
 function releaseModal() {
+  clearLoadTimer()
   if (!listening) return
   document.removeEventListener('keydown', handleKey, true)
   listening = false
   if (background) background.inert = wasInert
   background = null
-  if (focusBeforeOpen?.isConnected && !focusBeforeOpen.closest('[inert]')) focusBeforeOpen.focus()
+  if (focusBeforeOpen?.isConnected && !focusBeforeOpen.closest('[inert]')) focusBeforeOpen.focus({ preventScroll: true })
   focusBeforeOpen = null
 }
 function handleKey(event) {
   if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); emit('close') }
-  // 阅读器内有独立的原生 PDF 工具栏；弹窗外部的 Tab 从关闭按钮进入阅读区。
-  if (event.key === 'Tab' && document.activeElement === closeButton.value) {
+  // 关闭按钮之后进入阅读工具；移动端工具栏也参与正常键盘导航。
+  if (event.key === 'Tab' && !event.shiftKey && document.activeElement === closeButton.value) {
     event.preventDefault()
-    closeButton.value?.closest('[role="dialog"]')?.querySelector('iframe')?.focus()
+    closeButton.value?.closest('[role="dialog"]')?.querySelector('.pdf-canvas-viewer__toolbar button:not(:disabled), iframe, .pdf-canvas-viewer__page')?.focus({ preventScroll: true })
   }
 }
 watch(() => props.open, async open => {
@@ -36,6 +48,7 @@ watch(() => props.open, async open => {
   initialized.value = true
   if (!listening) {
     focusBeforeOpen = document.activeElement
+    if (['INPUT', 'TEXTAREA'].includes(focusBeforeOpen?.tagName)) focusBeforeOpen.blur()
     background = document.getElementById('app')
     wasInert = Boolean(background?.inert)
     if (background) background.inert = true
@@ -43,31 +56,35 @@ watch(() => props.open, async open => {
     listening = true
   }
   await nextTick()
-  if (props.open && listening) closeButton.value?.focus()
+  if (props.open && listening) closeButton.value?.focus({ preventScroll: true })
 }, { immediate: true })
-watch([() => props.open, () => props.src], () => { frameLoaded.value = false; failed.value = false }, { flush: 'sync' })
+watch([() => props.open, () => props.src, mobile], () => {
+  clearLoadTimer(); frameLoaded.value = false; failed.value = false
+  if (props.open && props.src) loadTimer = setTimeout(markFailed, 30000)
+}, { flush: 'sync', immediate: true })
 onDeactivated(releaseModal)
-onBeforeUnmount(releaseModal)
+onBeforeUnmount(() => { releaseModal(); mobileQuery?.removeEventListener('change', updateMobile) })
 </script>
 
 <template>
   <Teleport to="body">
     <div class="pdf-preview-glass" :class="{ 'is-active': open }" aria-hidden="true" @click="emit('close')"></div>
     <Transition name="pdf-preview">
-      <section v-if="initialized" v-show="open" class="pdf-preview" role="dialog" aria-modal="true" :aria-label="`预览 ${label}`" :inert="!open">
+      <section v-if="initialized" v-show="open" class="pdf-preview" role="dialog" aria-modal="true" :aria-label="t('预览 {value0}', { value0: previewLabel })" :inert="!open">
         <div class="pdf-preview__layout">
           <div class="pdf-preview__viewer">
             <div class="pdf-preview__surface">
-              <iframe v-if="open && src && !failed" :key="src" :class="{ 'is-ready': contentReady }" :aria-hidden="!contentReady" :tabindex="contentReady ? 0 : -1" :src="`${src}#view=FitH&toolbar=1&navpanes=0`" :title="`${label} PDF 内容`" @load="frameLoaded = true" @error="failed = true"></iframe>
+              <PdfCanvasViewer v-if="open && src && !failed && mobile" :key="src" :src="src" :label="previewLabel" @ready="markLoaded" @error="markFailed" />
+              <iframe v-else-if="open && src && !failed" :key="src" :class="{ 'is-ready': contentReady }" :aria-hidden="!contentReady" :tabindex="contentReady ? 0 : -1" :src="`${src}#view=FitH&toolbar=1&navpanes=0`" :title="t('{value0} PDF 内容', { value0: previewLabel })" @load="markLoaded" @error="markFailed"></iframe>
               <Transition name="pdf-loading">
                 <div v-if="open && !contentReady" class="pdf-preview__status" :aria-busy="!error && !failed && (loading || Boolean(src))">
                   <PdfLoadingAnimation v-if="!error && !failed && (loading || src)" />
                   <p>{{ label }}</p>
-                  <span v-if="error || failed || !src && !loading" role="alert">{{ error || '无法打开 PDF，请关闭后重新选择附件。' }}</span>
-                  <span v-else role="status">正在加载 PDF…</span>
+                  <span v-if="error || failed || !src && !loading" role="alert">{{ error || t('无法打开 PDF，请关闭后重新选择附件。') }}</span>
+                  <span v-else role="status">{{ t('正在加载 PDF…') }}</span>
                 </div>
               </Transition>
-              <button ref="closeButton" class="pdf-preview__close" type="button" aria-label="关闭 PDF 预览" @click="emit('close')"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5.5 5.5 9 9m0-9-9 9" /></svg></button>
+              <button ref="closeButton" class="pdf-preview__close" type="button" :aria-label="t('关闭 PDF 预览')" @click="emit('close')"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5.5 5.5 9 9m0-9-9 9" /></svg></button>
             </div>
           </div>
         </div>
@@ -119,6 +136,7 @@ onBeforeUnmount(releaseModal)
 }
 .pdf-preview__surface { width: 100%; height: 100%; border-radius: inherit; }
 .pdf-preview__viewer {
+  box-sizing: border-box;
   position: relative;
   flex: 1;
   width: 100%;
@@ -251,7 +269,7 @@ onBeforeUnmount(releaseModal)
 
 
 @media (max-width: 640px) {
-  .pdf-preview { padding: 10px; }
+  .pdf-preview { padding: max(24px, env(safe-area-inset-top)) 12px max(24px, env(safe-area-inset-bottom)); }
   .pdf-preview__layout { height: 100%; }
   .pdf-preview__viewer { border-radius: 13px; }
   .pdf-preview__close { top: -8px; right: -5px; width: 34px; height: 34px; }

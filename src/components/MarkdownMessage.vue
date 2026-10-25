@@ -2,17 +2,26 @@
 import { computed, nextTick, onActivated, onBeforeUnmount, onDeactivated, onMounted, ref, watch } from 'vue'
 import { answerWebLinks, renderAnswerBlocks } from '../models/answerMarkdown.js'
 import { createStreamText } from '../models/streamText.js'
+import { createMarkdownInk } from '../models/markdownInk.js'
 import { getLinkMetadata } from '../services/linkMetadata.js'
 
-const props = defineProps({ content: { type: String, required: true }, streamState: { type: String, default: '' }, animate: { type: Boolean, default: true }, stabilizeHeight: Boolean, beautifyLinks: Boolean })
-const emit = defineEmits(['display-state'])
-const displayedContent = ref(props.content)
+const props = defineProps({ content: { type: String, required: true }, streamState: { type: String, default: '' }, animate: { type: Boolean, default: true }, stabilizeHeight: Boolean, beautifyLinks: Boolean, revealOnMount: Boolean })
+const emit = defineEmits(['display-state', 'reveal-start'])
+const displayedContent = ref(props.revealOnMount ? '' : props.content)
 const contentRef = ref(null)
 const reservedHeight = ref(0)
 const linkMetadata = ref(new Map())
 const linkProbeActive = ref(false)
 const linksReady = computed(() => props.beautifyLinks && props.streamState === 'completed' && displayedContent.value === props.content)
-const renderedBlocks = computed(() => renderAnswerBlocks(displayedContent.value, { beautifyLinks: linksReady.value, linkMetadata: linkMetadata.value }))
+const rawBlocks = computed(() => renderAnswerBlocks(displayedContent.value, { beautifyLinks: linksReady.value, linkMetadata: linkMetadata.value }))
+const renderedBlocks = ref(rawBlocks.value)
+const ink = createMarkdownInk()
+ink.update(rawBlocks.value)
+let inkPending = false
+watch(rawBlocks, blocks => {
+  renderedBlocks.value = ink.update(blocks, { animate: inkPending })
+  inkPending = false
+})
 let linkProbeRevision = 0
 watch(() => [linksReady.value, props.content, linkProbeActive.value], async ([ready, content, active]) => {
   const revision = ++linkProbeRevision
@@ -32,6 +41,8 @@ let heightObserver
 let revealer
 let motionPreference
 let running = false
+let animateStreamChanges = false
+let liveOutput = props.revealOnMount || props.streamState === 'streaming'
 
 function measureContentHeight() {
   const element = contentRef.value
@@ -48,8 +59,14 @@ function measureContentHeight() {
 function updateDisplay() {
   linkProbeActive.value = running && props.animate && !document.hidden
   if (!revealer) { displayedContent.value = props.content; return }
-  const smooth = running && props.animate && !motionPreference?.matches && !document.hidden && props.streamState === 'streaming'
+  const enabled = running && props.animate && !motionPreference?.matches && !document.hidden
+  if (props.revealOnMount || props.streamState === 'streaming') liveOutput = true
+  inkPending = enabled && (props.streamState === 'streaming' || props.streamState === 'completed' && liveOutput && displayedContent.value !== props.content)
+  animateStreamChanges = inkPending
+  const smooth = animateStreamChanges
   revealer.update(props.content, { immediate: !smooth })
+  if (!enabled) renderedBlocks.value = ink.update(rawBlocks.value)
+  if (props.revealOnMount && props.content) emit('reveal-start')
 }
 function reportDisplayState() {
   emit('display-state', { text: displayedContent.value, complete: displayedContent.value === props.content })
@@ -58,7 +75,7 @@ function resume() {
   if (running) return
   running = true
   motionPreference = window.matchMedia('(prefers-reduced-motion: reduce)')
-  revealer = createStreamText({ initial: displayedContent.value, onChange: text => { displayedContent.value = text }, requestFrame: callback => window.requestAnimationFrame(callback), cancelFrame: id => window.cancelAnimationFrame(id) })
+  revealer = createStreamText({ initial: displayedContent.value, onChange: text => { inkPending = animateStreamChanges; displayedContent.value = text; if (props.streamState !== 'streaming' && text === props.content) liveOutput = false }, requestFrame: callback => window.requestAnimationFrame(callback), cancelFrame: id => window.cancelAnimationFrame(id) })
   motionPreference.addEventListener('change', updateDisplay)
   document.addEventListener('visibilitychange', updateDisplay)
   if (props.stabilizeHeight) {
@@ -75,11 +92,15 @@ function pause() {
   running = false
   heightObserver?.disconnect()
   revealer?.stop()
+  inkPending = false
+  animateStreamChanges = false
+  liveOutput = false
+  renderedBlocks.value = ink.update(rawBlocks.value)
   revealer = null
   motionPreference?.removeEventListener('change', updateDisplay)
   document.removeEventListener('visibilitychange', updateDisplay)
 }
-watch(() => [props.content, props.streamState, props.animate], updateDisplay)
+watch(() => [props.content, props.streamState, props.animate, props.revealOnMount], updateDisplay)
 watch([displayedContent, () => props.content, () => props.streamState], async () => { await nextTick(); measureContentHeight(); reportDisplayState() }, { flush: 'post' })
 onMounted(resume)
 onActivated(resume)
@@ -105,6 +126,13 @@ onBeforeUnmount(pause)
 }
 
 .markdown-message__block { display: contents; }
+.markdown-message :deep(.markdown-ink) { animation: markdown-ink-reveal .64s cubic-bezier(.2, .65, .25, 1) both; }
+@keyframes markdown-ink-reveal {
+  from { opacity: 0; filter: blur(2px); }
+  60% { opacity: .85; filter: blur(.35px); }
+  to { opacity: 1; filter: blur(0); }
+}
+@media (prefers-reduced-motion: reduce) { .markdown-message :deep(.markdown-ink) { animation: none; } }
 .markdown-message__content { display: flow-root; }
 
 .markdown-message__content :deep(> .markdown-message__block:first-child > :first-child) {

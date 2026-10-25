@@ -32,9 +32,13 @@ Compose 部署只在 `knowledge-accumulation-deploy/.env` 维护公开的 `DINGT
 
 ## 用户头像
 
-工作台右上角在姓名旁显示圆形头像。`UserAvatar.vue` 从当前身份的 `avatar_url` 取得文件名，通过[头像读取接口](../../../knowledge-accumulation-be/description/api/resource.md#读取头像)携带共享 Bearer token 请求 WebP，再创建本地 Blob URL 显示；开发沿用 `/dev` 代理前缀，token 不放入图片 URL。
+工作台右上角在姓名旁显示圆形头像。`UserAvatar.vue` 从当前身份的 `avatar_url` 取得文件名，通过[头像读取接口](../../../knowledge-accumulation-be/description/api/resource.md#读取头像)携带共享 Bearer token 请求图片，再创建本地 Blob URL 显示。源接口返回 WebP；实机诊断确认移动请求曾返回 HTTP 200 / image/png，前端现在接受 WebP、PNG、JPEG、GIF，检查实际文件签名并按实际格式声明 Blob MIME，避免仅因传输链路改变图片类型就丢弃有效头像；拒绝 HTML、SVG 和未知文件类型；开发沿用 `/dev` 代理前缀，token 不放入图片 URL。
 
-无头像、文件不存在、图片解码失败、网络异常或 15 秒超时时使用默认人像，不阻塞工作台，不修改共享凭据。身份更新时取消旧请求并加载新头像，过期响应不覆盖新身份；替换、解码失败和组件卸载时释放 Blob URL。
+无头像、文件不存在、图片加载失败、网络异常或单次 15 秒超时时使用默认人像，不阻塞工作台，不修改共享凭据。图片通过 load 事件和有效固有尺寸确认可显示，不在 load 后额外调用 decode 来决定是否丢弃，避免额外解码步骤误伤已能显示的图片。网络异常、408、429 或 5xx 在 800ms 后仅自动重试一次；401 不拿旧 token 自动重试、不触发额外登录。同一身份重新验证后，仅失败头像重新请求，已正常显示的头像不重复下载或闪烁。身份更新时取消旧请求、待执行重试并加载新头像，过期响应不覆盖新身份；替换、加载失败和组件卸载时释放 Blob URL。
+
+诊断面板 `AvatarDiagnostics.vue` 默认隐藏，开发与生产均仅通过 `dd_display_debug=1` 手动开启。面板可折叠，提供“复制诊断信息”按钮，剪贴板受限时支持长按文本复制。输出请求阶段、HTTP、Content-Type、文件大小、实际图片格式、显示尺寸、失败摘要与最多 20 条阶段记录，不输出 token、用户姓名、头像文件名、Blob URL 或图片内容，不上传日志。客户端报告的 `/auth/me` ClientDisconnect 需与头像自己的诊断区分，不能直接推断为头像凭据失效。
+
+本次手机已回传 `request-failed / HTTP 200 / Content-Type image/png / 头像响应格式错误`，直接定位到前端原先仅允许 WebP 的校验；兼容修复已加入 PNG 和 MIME 改写回归。实际 PNG 字节与具体转换发生在哪一层，需以修复后 body-read 的 image format 进一步核对，不能仅凭响应头断言是后端或钉钉重新编码。用户已在移动钉钉实机确认头像恢复；临时面板默认展示已关闭，保留按参数诊断。
 
 ## 管理平台交接
 

@@ -1,38 +1,41 @@
 <script setup>
+import { t } from '../i18n/index.js'
 import { watch } from 'vue'
+import AvatarDiagnostics from './AvatarDiagnostics.vue'
 import { useUserAvatar } from '../composables/useUserAvatar.js'
 
 const props = defineProps({ user: { type: Object, default: null }, compact: Boolean })
 const emit = defineEmits(['ready'])
-const { imageUrl, ready, markImageReady, failImage } = useUserAvatar(() => props.user)
+const { imageUrl, ready, status, diagnostic, markImageReady, failImage } = useUserAvatar(() => props.user)
 
 watch(ready, value => emit('ready', value), { immediate: true, flush: 'post' })
 
-async function imageLoaded(event) {
+let forceDiagnostics = false
+try { forceDiagnostics = new URL(window.location.href).searchParams.get('dd_display_debug') === '1' } catch { /* 测试或服务端无浏览器环境。 */ }
+
+function imageLoaded(event) {
   const element = event.currentTarget
   const source = element.currentSrc || element.src
-  try {
-    // 等待浏览器解码，而不只是下载完成，避免条目入场后头像再闪现。
-    await element.decode?.()
-    markImageReady(source)
-  } catch {
-    failImage(source)
-  }
+  // load 与有效固有尺寸已证明图片可显示，不因额外 decode() 调用失败丢弃有效图片。
+  if (element.naturalWidth > 0 && element.naturalHeight > 0) markImageReady(source, { width: element.naturalWidth, height: element.naturalHeight })
+  else failImage(source)
 }
 
 function imageFailed(event) {
-  failImage(event.currentTarget.currentSrc || event.currentTarget.src)
+  const element = event.currentTarget
+  failImage(element.currentSrc || element.src, { width: element.naturalWidth, height: element.naturalHeight })
 }
 </script>
 
 <template>
-  <span class="user-avatar" :class="{ 'user-avatar--compact': compact }" role="img" :aria-label="`${user?.name || user?.userid || '用户'}的头像`">
+  <span class="user-avatar" :class="{ 'user-avatar--compact': compact }" :data-avatar-state="status" role="img" :aria-label="t('{value0}的头像', { value0: user?.name || user?.userid || t('用户') })">
     <img v-if="imageUrl" :key="imageUrl" :src="imageUrl" alt="" draggable="false" @load="imageLoaded" @error="imageFailed" />
     <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
       <circle cx="12" cy="8.5" r="3.5" />
       <path d="M5 21v-2a7 7 0 0 1 14 0v2" stroke-linecap="round" />
     </svg>
   </span>
+  <AvatarDiagnostics v-if="!compact && forceDiagnostics" :value="diagnostic" :force="forceDiagnostics" />
 </template>
 
 <style scoped>

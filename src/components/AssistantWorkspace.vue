@@ -1,6 +1,9 @@
 <script setup>
+import { locale, t, localizedRef, uiText } from '../i18n/index.js'
 import { computed, nextTick, onActivated, onBeforeUnmount, onDeactivated, onMounted, ref, watch } from 'vue'
 import QuestionTree from './QuestionTree.vue'
+import OperationToast from './OperationToast.vue'
+import { useOperationToast } from '../composables/useOperationToast.js'
 import QuestionTreeSelect from './QuestionTreeSelect.vue'
 import HandwritingPrompt from './HandwritingPrompt.vue'
 import PdfPreviewOverlay from './PdfPreviewOverlay.vue'
@@ -10,11 +13,13 @@ import AnswerProcess from './AnswerProcess.vue'
 import DeleteQuestionTreeDialog from './DeleteQuestionTreeDialog.vue'
 import { useExplorationTrees } from '../composables/useExplorationTrees.js'
 import { useAssistantPanelResize } from '../composables/useAssistantPanelResize.js'
+import { useSideDrawer } from '../composables/useSideDrawer.js'
 import { createMessageScrollFollower } from '../services/messageScrollFollower.js'
 import { clipboardFiles } from '../services/clipboardFiles.js'
 
 const props = defineProps({ active: Boolean, user: Object })
 const emit = defineEmits(['authentication-expired'])
+const { message: toastMessage, tone: toastTone, revision: toastRevision, show: showToast } = useOperationToast(() => props.active)
 const fontSizeKey = 'knowledge-accumulation.assistant.font-size'
 function readFontSize() {
   try {
@@ -29,10 +34,11 @@ function changeFontSize(value) {
   try { localStorage.setItem(fontSizeKey, String(fontSize.value)) } catch { /* 本地存储不可用不阻断阅读。 */ }
 }
 const { workspaceElement, chatElement, resizeHandle, chatWidth, displayedWidth, bounds, resizing, stacked, startResize, moveResize, finishResize, resizeWithKeyboard, resetWidth } = useAssistantPanelResize(() => props.active)
-const { trees, tree, isNewExploration, selectedId, selectedNode, context, branchAnchorId, draft, pending, reasoningEffort, canAdvance, advanceMode, queuedQuestions, sendQueued, removeQueued, attachments, convertingAttachments, attachmentError, addAttachments, removeAttachment, selectTree, selectNode, newTree, sendQuestion, stopAnswer, treeMutation, renameTree, deleteTree, revalidate, submissionUncertain, contextPath, loading, listLoading, error, submitting, cancelling, connectionError, reconnect, loadTrees, canSteer, previewResource } = useExplorationTrees({ active: () => props.active, onAuthenticationExpired: () => emit('authentication-expired') })
+const { dialog: treeDrawer, content: treeDrawerContent, trigger: treeDrawerTrigger, open: treeDrawerOpen, visible: treeDrawerVisible, show: showTreeDrawer, close: closeTreeDrawer } = useSideDrawer({ enabled: () => stacked.value, active: () => props.active })
+const { runningTreeIds, unreadTreeIds, trees, tree, isNewExploration, selectedId, selectedNode, context, branchAnchorId, draft, pending, reasoningEffort, canAdvance, advanceMode, queuedQuestions, sendQueued, removeQueued, attachments, convertingAttachments, attachmentError, addAttachments, removeAttachment, selectTree, selectNode, newTree, sendQuestion, stopAnswer, treeMutation, renameTree, deleteTree, revalidate, submissionUncertain, contextPath, loading, listLoading, error, submitting, cancelling, connectionError, reconnect, loadTrees, canSteer, previewResource } = useExplorationTrees({ userId: props.user?.userid, active: () => props.active, onAuthenticationExpired: () => emit('authentication-expired') })
 watch(() => props.user, () => { void revalidate() })
 const deleteTarget = ref(null)
-const deleteError = ref('')
+const deleteError = localizedRef('')
 const treeActionsBusy = computed(() => Boolean(treeMutation.value || submitting.value || cancelling.value || convertingAttachments.value || loading.value || listLoading.value))
 function requestTreeDelete(id) {
   if (treeActionsBusy.value) return
@@ -40,12 +46,32 @@ function requestTreeDelete(id) {
   deleteError.value = ''
 }
 function closeTreeDelete() { if (treeMutation.value?.type !== 'delete') { deleteTarget.value = null; deleteError.value = '' } }
+async function renameTreeWithToast(id, name) {
+  try {
+    const result = await renameTree(id, name)
+    if (result !== false) showToast(uiText('问答树名称已更新'))
+    return result
+  } catch (cause) {
+    if (cause.name !== 'AbortError') showToast(cause.message ? cause : uiText('修改名称失败，请重试'), 'error')
+    throw cause
+  }
+}
 async function confirmTreeDelete(confirmation) {
   const target = deleteTarget.value
-  if (!target || treeActionsBusy.value || confirmation !== `我确认删除${target.title}`) return
+  if (!target || treeActionsBusy.value || confirmation !== t('我确认删除{value0}', { value0: target.title })) return
   deleteError.value = ''
-  try { if (await deleteTree(target.id)) closeTreeDelete() }
-  catch (cause) { if (cause.name !== 'AbortError') deleteError.value = cause.message || '删除尚未完成，请重试' }
+  try {
+    if (await deleteTree(target.id)) {
+      closeTreeDelete()
+      showToast(uiText('问答树已删除'))
+    }
+  } catch (cause) {
+    if (cause.name !== 'AbortError') {
+      const failure = cause.message ? cause : uiText('删除尚未完成，请重试')
+      deleteError.value = failure
+      showToast(failure, 'error')
+    }
+  }
 }
 watch(() => props.active, active => { if (!active) closeTreeDelete() })
 const messages = ref(null)
@@ -63,7 +89,7 @@ const composer = ref(null)
 const attachmentInput = ref(null)
 const previewAttachment = ref(null)
 const previewLoading = ref(false)
-const previewError = ref('')
+const previewError = localizedRef('')
 let previewRequest
 watch(previewAttachment, item => { if (!item) { previewRequest?.abort(); previewLoading.value = false; previewError.value = '' } })
 async function previewFile(item) {
@@ -77,7 +103,7 @@ async function previewFile(item) {
     const url = await previewResource(item, request.signal)
     if (!request.signal.aborted && previewRequest === request) previewAttachment.value = { ...item, url }
   } catch (cause) {
-    if (!request.signal.aborted) previewError.value = cause.message || '无法加载附件'
+    if (!request.signal.aborted) previewError.value = cause.message ? cause : uiText('无法加载附件')
   } finally { if (previewRequest === request) previewLoading.value = false }
 }
 function removeFile(id) {
@@ -86,7 +112,7 @@ function removeFile(id) {
 }
 watch([() => props.active, () => tree.value.id, selectedId, branchAnchorId], () => { previewAttachment.value = null })
 const copiedId = ref(null)
-const notice = ref('')
+const notice = localizedRef('')
 const answerDisplayStates = ref({})
 let copyTimer
 const contextIds = computed(() => contextPath.value.map(node => node.id))
@@ -95,6 +121,8 @@ const isBranching = computed(() => Boolean(branchAnchorId.value) || hasContinuat
 const pendingHere = computed(() => pending.value?.treeId === tree.value.id)
 const hasComposerInput = computed(() => Boolean(draft.value.trim() || attachments.value.length))
 const stopMode = computed(() => pendingHere.value && !hasComposerInput.value)
+const reasoningLevelIndex = computed(() => ['low', 'medium', 'xhigh'].indexOf(reasoningEffort.value))
+function chooseDrawerNode(id) { selectNode(id); if (stacked.value) closeTreeDrawer() }
 
 async function positionCurrentTask() {
   needsPositioning = true
@@ -139,10 +167,14 @@ function handleComposerPaste(event) {
   // 混合粘贴保留原生文字插入、选区和撤销；仅文件粘贴阻止浏览器默认行为。
   if (!event.clipboardData.getData('text/plain')) event.preventDefault()
   if (!props.active || submitting.value || convertingAttachments.value) {
-    attachmentError.value = '请等待当前操作完成后重新粘贴附件。'
+    attachmentError.value = uiText('请等待当前操作完成后重新粘贴附件。')
     return
   }
   void addAttachments(files)
+}
+function markProcessRevealed(node, id) {
+  const step = node.process.find(item => item.id === id)
+  if (step) step.reveal = false
 }
 function onAnswerDisplay(node, state) {
   answerDisplayStates.value[node.id] = state
@@ -159,19 +191,19 @@ async function copyAnswer(node) {
   try {
     await navigator.clipboard.writeText(node.answer)
     copiedId.value = node.id
-    notice.value = '回答已复制'
+    notice.value = uiText('回答已复制')
     clearTimeout(copyTimer)
     copyTimer = setTimeout(() => { copiedId.value = null; notice.value = '' }, 2000)
   } catch {
-    notice.value = '复制未成功，请选择回答文本手动复制。'
+    notice.value = uiText('复制未成功，请选择回答文本手动复制。')
   }
 }
 function attachmentFormat(item) {
   if (item.file?.type === 'application/pdf' || item.type === 'images') return 'PDF'
   const extension = (item.file?.name || item.name || '').match(/\.([a-z0-9]{1,8})$/i)?.[1]
-  return extension ? extension.toUpperCase() : '附件'
+  return extension ? extension.toUpperCase() : t('附件')
 }
-function timeLabel(value) { return new Date(value).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false }) }
+function timeLabel(value) { return new Date(value).toLocaleTimeString(locale.value === 'en' ? 'en-US' : 'zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false }) }
 onBeforeUnmount(() => { scrollDisposed = true; ++positioningRevision; scrollFollower?.dispose(); messageElements.clear(); clearTimeout(copyTimer); previewRequest?.abort() })
 </script>
 
@@ -180,37 +212,38 @@ onBeforeUnmount(() => { scrollDisposed = true; ++positioningRevision; scrollFoll
     <section id="assistant-chat-panel" ref="chatElement" class="agent-chat" aria-labelledby="agent-chat-title">
       <header class="agent-chat__header" :aria-busy="loading || listLoading">
         <div class="agent-chat__tree-picker">
-          <span id="agent-chat-title">问答树选择</span>
-          <QuestionTreeSelect :trees="trees" :model-value="isNewExploration ? '' : tree.id" :active="active" :busy="treeActionsBusy" :rename="renameTree" @update:model-value="selectTree" @create="createTree" @delete="requestTreeDelete" />
+          <span id="agent-chat-title">{{ t('问答树选择') }}</span>
+          <QuestionTreeSelect :trees="trees" :unread-tree-ids="unreadTreeIds" :running-tree-ids="runningTreeIds" :model-value="isNewExploration ? '' : tree.id" :active="active" :busy="treeActionsBusy" :rename="renameTreeWithToast" @update:model-value="selectTree" @create="createTree" @delete="requestTreeDelete" />
         </div>
-        <div class="agent-chat__font-size" role="group" aria-label="问答字号调整">
-          <button type="button" aria-label="缩小字号" title="缩小字号" :disabled="fontSize <= 12" @click="changeFontSize(fontSize - 1)">A<span aria-hidden="true">−</span></button>
-          <button type="button" class="agent-chat__font-value" :aria-label="`当前字号 ${fontSize} 像素，点击恢复默认`" title="恢复默认字号" @click="changeFontSize(13)">{{ fontSize }}<span>px</span></button>
-          <button type="button" aria-label="放大字号" title="放大字号" :disabled="fontSize >= 20" @click="changeFontSize(fontSize + 1)">A<span aria-hidden="true">+</span></button>
+        <div class="agent-chat__font-size" role="group" :aria-label="t('问答字号调整')">
+          <button type="button" :aria-label="t('缩小字号')" :title="t('缩小字号')" :disabled="fontSize <= 12" @click="changeFontSize(fontSize - 1)">A<span aria-hidden="true">−</span></button>
+          <button type="button" class="agent-chat__font-value" :aria-label="t('当前字号 {value0} 像素，点击恢复默认', { value0: fontSize })" :title="t('恢复默认字号')" @click="changeFontSize(13)">{{ fontSize }}<span>px</span></button>
+          <button type="button" :aria-label="t('放大字号')" :title="t('放大字号')" :disabled="fontSize >= 20" @click="changeFontSize(fontSize + 1)">A<span aria-hidden="true">+</span></button>
         </div>
-        <span v-if="loading || listLoading" class="agent-chat__loading" role="status">{{ loading ? '正在加载问答记录…' : '正在加载问答树…' }}</span>
+        <button ref="treeDrawerTrigger" type="button" class="agent-chat__tree-trigger" :aria-label="t('查看问答树')" aria-haspopup="dialog" aria-controls="mobile-question-tree" :aria-expanded="treeDrawerOpen" @click="showTreeDrawer"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="2" width="6" height="5" rx="2" /><rect x="2" y="17" width="6" height="5" rx="2" /><rect x="16" y="17" width="6" height="5" rx="2" /><path d="M12 7v5M5 17v-5h14v5" /></svg><span>{{ t('问答树') }}</span></button>
+        <span v-if="loading || listLoading" class="agent-chat__loading" role="status">{{ loading ? t('正在加载问答记录…') : t('正在加载问答树…') }}</span>
       </header>
-      <div v-if="error" class="agent-chat__service-status is-error" role="alert"><span>{{ error }}</span><button type="button" :disabled="loading || listLoading || submitting" @click="connectionError ? reconnect() : isNewExploration ? loadTrees() : selectTree(tree.id)">{{ connectionError ? '重新连接' : '重新加载' }}</button></div>
-      <div ref="messages" class="agent-chat__messages" tabindex="0" aria-label="从根到当前任务的问答记录">
+      <div v-if="error" class="agent-chat__service-status is-error" role="alert"><span>{{ error }}</span><button type="button" :disabled="loading || listLoading || submitting" @click="connectionError ? reconnect() : isNewExploration ? loadTrees() : selectTree(tree.id)">{{ connectionError ? t('重新连接') : t('重新加载') }}</button></div>
+      <div ref="messages" class="agent-chat__messages" tabindex="0" :aria-label="t('从根到当前任务的问答记录')">
         <div ref="messageContent" class="agent-chat__message-list" :style="{ '--chat-font-size': `${fontSize}px` }" :class="{ 'is-empty': !context.length }">
           <div v-if="!context.length && !loading && (isNewExploration || tree.loaded)" class="agent-chat__empty"><HandwritingPrompt :key="tree.id" :active="active" /></div>
-          <article v-for="(node, index) in context" :key="node.id" :ref="element => setMessageElement(node.id, element)" :data-task-id="node.id" class="agent-chat__turn" :aria-label="`第 ${index + 1} 个问答任务`">
-            <ul v-if="node.attachments?.length" class="agent-chat__sent-attachments" aria-label="用户消息附件">
+          <article v-for="(node, index) in context" :key="node.id" :ref="element => setMessageElement(node.id, element)" :data-task-id="node.id" class="agent-chat__turn" :aria-label="t('第 {value0} 个问答任务', { value0: index + 1 })">
+            <ul v-if="node.attachments?.length" class="agent-chat__sent-attachments" :aria-label="t('用户消息附件')">
               <li v-for="item in node.attachments" :key="item.id">
-                <button type="button" class="agent-chat__file-card" :title="`预览附件：${item.file?.name || item.name}`" :aria-label="`预览附件：${item.file?.name || item.name}`" @click="previewFile(item)">
+                <button type="button" class="agent-chat__file-card" :title="t('预览附件：{value0}', { value0: item.file?.name || item.name })" :aria-label="t('预览附件：{value0}', { value0: item.file?.name || item.name })" @click="previewFile(item)">
                   <span class="agent-chat__file-icon" aria-hidden="true"><svg viewBox="0 0 24 28"><path d="M14 2H5a2 2 0 0 0-2 2v20a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9Z" /><path d="M14 2v7h7M7 15h10M7 19h7" /></svg></span>
-                  <span class="agent-chat__file-info"><span class="agent-chat__file-name">{{ item.file?.name || item.name }}</span><span class="agent-chat__file-format">{{ attachmentFormat(item) }} 文件</span></span>
+                  <span class="agent-chat__file-info"><span class="agent-chat__file-name">{{ item.file?.name || item.name }}</span><span class="agent-chat__file-format">{{ attachmentFormat(item) }} {{ t('文件') }}</span></span>
                 </button>
               </li>
             </ul>
             <div class="agent-chat__question"><p>{{ node.question }}</p></div>
-            <AnswerProcess :task="node" :final-visible="Boolean(answerDisplayStates[node.id]?.text?.trim())" :active="active" @toggle="scrollFollower?.holdLayout()" />
+            <AnswerProcess :task="node" @reveal-start="markProcessRevealed(node, $event)" :final-visible="Boolean(answerDisplayStates[node.id]?.text?.trim())" :active="active" @toggle="scrollFollower?.holdLayout()" />
             <div class="agent-chat__answer">
-              <p v-if="node.status === 'generating' && !node.answer && !node.process?.length" class="agent-chat__thinking" :class="{ 'is-paused': !active }" role="status">正在思考</p>
-              <MarkdownMessage class="agent-chat__answer-text" :beautify-links="node.status === 'complete'" :content="node.answer" :stream-state="node.status === 'generating' ? 'streaming' : node.status === 'complete' ? 'completed' : 'cancelled'" :animate="active" stabilize-height @display-state="onAnswerDisplay(node, $event)" />
-              <span v-if="['cancelled', 'superseded', 'failed'].includes(node.status)" class="agent-chat__stopped">{{ node.error || (node.status === 'failed' ? '本次回答未完成' : node.supersededBy || node.status === 'superseded' ? '已调整方向' : '回答已停止') }}</span>
+              <p v-if="node.status === 'generating' && !node.answer && !node.process?.length" class="agent-chat__thinking" :class="{ 'is-paused': !active }" role="status">{{ t('正在思考') }}</p>
+              <MarkdownMessage class="agent-chat__answer-text" :beautify-links="node.status === 'complete'" :content="node.answer" :reveal-on-mount="Boolean(node.revealAnswer)" @reveal-start="node.revealAnswer = false" :stream-state="node.status === 'generating' ? 'streaming' : node.status === 'complete' ? 'completed' : 'cancelled'" :animate="active" stabilize-height @display-state="onAnswerDisplay(node, $event)" />
+              <span v-if="['cancelled', 'superseded', 'failed'].includes(node.status)" class="agent-chat__stopped">{{ node.error || (node.status === 'failed' ? t('本次回答未完成') : node.supersededBy || node.status === 'superseded' ? t('已调整方向') : t('回答已停止')) }}</span>
               <div v-if="node.status !== 'generating'" class="agent-chat__answer-actions">
-                <button v-if="node.answer" type="button" :class="{ 'is-copied': copiedId === node.id }" :aria-label="copiedId === node.id ? '已复制回答' : '复制回答'" :title="copiedId === node.id ? '已复制' : '复制回答'" @click="copyAnswer(node)"><Transition name="copy-icon" mode="out-in"><svg v-if="copiedId !== node.id" key="copy" viewBox="0 0 20 20" aria-hidden="true"><rect x="7" y="7" width="9" height="10" rx="2" /><path d="M12 7V4a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1h3" /></svg><svg v-else key="copied" viewBox="0 0 20 20" aria-hidden="true"><path d="m4 10 4 4 8-9" /></svg></Transition></button>
+                <button v-if="node.answer" type="button" :class="{ 'is-copied': copiedId === node.id }" :aria-label="copiedId === node.id ? t('已复制回答') : t('复制回答')" :title="copiedId === node.id ? t('已复制') : t('复制回答')" @click="copyAnswer(node)"><Transition name="copy-icon" mode="out-in"><svg v-if="copiedId !== node.id" key="copy" viewBox="0 0 20 20" aria-hidden="true"><rect x="7" y="7" width="9" height="10" rx="2" /><path d="M12 7V4a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1h3" /></svg><svg v-else key="copied" viewBox="0 0 20 20" aria-hidden="true"><path d="m4 10 4 4 8-9" /></svg></Transition></button>
                 <time :datetime="node.createdAt">{{ timeLabel(node.createdAt) }}</time>
               </div>
             </div>
@@ -221,63 +254,75 @@ onBeforeUnmount(() => { scrollDisposed = true; ++positioningRevision; scrollFoll
       <form class="agent-chat__composer" @submit.prevent="send">
 
         <div class="agent-chat__composer-accessories">
-          <TransitionGroup tag="ul" name="queued-prompt" class="agent-chat__prompt-queue" aria-label="待发送消息">
+          <TransitionGroup tag="ul" name="queued-prompt" class="agent-chat__prompt-queue" :aria-label="t('待发送消息')">
             <li v-for="item in queuedQuestions" :key="item.id" class="agent-chat__queued-prompt">
-              <div class="agent-chat__queued-content"><span :title="item.question">{{ item.question }}</span><small v-if="item.attachments.length">{{ item.attachments.length }} 个附件</small></div>
-              <button type="button" class="agent-chat__queue-steer" :disabled="Boolean(treeMutation) || submitting || Boolean(pending) && (!pendingHere || !canSteer || item.parentId !== pending.nodeId)" :title="pendingHere ? '立即提交这条问题，替代当前轮次' : '立即发送这条排队消息'" @click="adjustQueued(item.id)"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 16v-4a5 5 0 0 1 5-5h5M11 3l4 4-4 4" /></svg>{{ pendingHere ? '调整方向' : '立即发送' }}</button>
-              <button type="button" class="agent-chat__queue-remove" :aria-label="`移除待发送消息：${item.question}`" @click="removeQueued(item.id)"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m5 5 6 6M11 5l-6 6" /></svg></button>
+              <div class="agent-chat__queued-content"><span :title="item.question">{{ item.question }}</span><small v-if="item.attachments.length">{{ t('{value0} 个附件', { value0: item.attachments.length }) }}</small></div>
+              <button type="button" class="agent-chat__queue-steer" :disabled="Boolean(treeMutation) || submitting || Boolean(pending) && (!pendingHere || !canSteer || item.parentId !== pending.nodeId)" :title="pendingHere ? t('立即提交这条问题，替代当前轮次') : t('立即发送这条排队消息')" @click="adjustQueued(item.id)"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 16v-4a5 5 0 0 1 5-5h5M11 3l4 4-4 4" /></svg>{{ pendingHere ? t('调整方向') : t('立即发送') }}</button>
+              <button type="button" class="agent-chat__queue-remove" :aria-label="t('移除待发送消息：{value0}', { value0: item.question })" @click="removeQueued(item.id)"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m5 5 6 6M11 5l-6 6" /></svg></button>
             </li>
           </TransitionGroup>
-          <TransitionGroup tag="ul" name="attachment-chip" class="agent-chat__attachments agent-chat__attachments--floating" aria-label="已选附件" @before-leave="prepareAttachmentLeave">
+          <TransitionGroup tag="ul" name="attachment-chip" class="agent-chat__attachments agent-chat__attachments--floating" :aria-label="t('已选附件')" @before-leave="prepareAttachmentLeave">
             <li v-for="item in attachments" :key="item.id" class="agent-chat__attachment">
-              <button type="button" class="agent-chat__attachment-name" :title="`预览附件：${(item.file?.name || item.name)}`" :aria-label="`预览附件：${(item.file?.name || item.name)}`" @click="previewFile(item)">{{ (item.file?.name || item.name) }}</button>
-              <button type="button" :aria-label="`移除附件：${(item.file?.name || item.name)}`" @click="removeFile(item.id)"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m5 5 6 6M11 5l-6 6" /></svg></button>
+              <button type="button" class="agent-chat__attachment-name" :title="t('预览附件：{value0}', { value0: item.file?.name || item.name })" :aria-label="t('预览附件：{value0}', { value0: item.file?.name || item.name })" @click="previewFile(item)">{{ (item.file?.name || item.name) }}</button>
+              <button type="button" :aria-label="t('移除附件：{value0}', { value0: item.file?.name || item.name })" @click="removeFile(item.id)"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m5 5 6 6M11 5l-6 6" /></svg></button>
             </li>
           </TransitionGroup>
         </div>
         <p v-if="attachmentError" class="agent-chat__attachment-error" role="alert">{{ attachmentError }}</p>
-        <textarea :disabled="submitting || Boolean(treeMutation)" ref="composer" v-model="draft" aria-label="输入问题" :placeholder="isBranching ? '换一个角度，从这里继续探索…' : '有什么想了解的？'" rows="3" maxlength="20000" @keydown="handleInputKey" @paste="handleComposerPaste"></textarea>
+        <textarea :disabled="submitting || Boolean(treeMutation)" ref="composer" v-model="draft" :aria-label="t('输入问题')" :placeholder="isBranching ? t('换一个角度，从这里继续探索…') : t('有什么想了解的？')" :rows="stacked ? 2 : 3" enterkeyhint="enter" maxlength="20000" @keydown="handleInputKey" @paste="handleComposerPaste"></textarea>
         <div class="agent-chat__composer-actions">
           <div class="agent-chat__attachment-controls">
-            <button class="agent-chat__attach" type="button" :disabled="Boolean(treeMutation) || submitting || convertingAttachments" aria-label="添加图片附件" title="添加图片，自动转为 PDF" @click="attachmentInput?.click()">
+            <button class="agent-chat__attach" type="button" :disabled="Boolean(treeMutation) || submitting || convertingAttachments" :aria-label="t('添加图片附件')" :title="t('添加图片，自动转为 PDF')" @click="attachmentInput?.click()">
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg><span v-if="attachments.length" aria-hidden="true">{{ attachments.length }}</span>
             </button>
           </div>
           <input ref="attachmentInput" type="file" multiple accept="image/png,image/jpeg,image/webp,image/gif,image/bmp,image/avif,.png,.jpg,.jpeg,.webp,.gif,.bmp,.avif" hidden @change="chooseAttachments" />
-          <span role="status">{{ submitting ? '正在提交…' : cancelling ? '正在停止…' : convertingAttachments ? '正在转换为 PDF…' : pending && !pendingHere ? '另一棵问答树正在回答…' : pendingHere ? hasComposerInput ? 'Shift + Enter 加入队列' : '正在生成回答…' : 'Enter 换行 · Shift + Enter 发送' }}</span>
+          <span role="status">{{ submitting ? t('正在提交…') : cancelling ? t('正在停止…') : convertingAttachments ? t('正在转换为 PDF…') : pendingHere ? hasComposerInput ? t('Shift + Enter 加入队列') : t('正在生成回答…') : t('Enter 换行 · 点击按钮发送') }}</span>
           <div class="agent-chat__submit-controls">
             <AdvanceModeSwitch v-model="advanceMode" :disabled="!canAdvance" :active="active" />
             <div class="agent-chat__reasoning-send">
             <div class="agent-chat__reasoning" :class="{ 'is-paused': !active }">
-              <span aria-hidden="true">推理强度</span>
-              <fieldset class="agent-chat__reasoning-options">
-                <legend class="sr-only">推理强度</legend>
-                <span class="agent-chat__reasoning-highlight" aria-hidden="true" :style="{ transform: `translateX(${['low', 'medium', 'xhigh'].indexOf(reasoningEffort) * 58}px)` }"></span>
+              <span aria-hidden="true">{{ t('推理强度') }}</span>
+              <div class="agent-chat__reasoning-options" role="radiogroup" :aria-label="t('推理强度')">
+                <span class="agent-chat__reasoning-highlight" aria-hidden="true" :style="{ transform: `translate3d(calc(${reasoningLevelIndex * 100}% + ${reasoningLevelIndex * 2}px), 0, 0)` }"><span class="agent-chat__reasoning-liquid"></span></span>
                 <label v-for="level in ['low', 'medium', 'xhigh']" :key="level" class="agent-chat__reasoning-option">
                   <input v-model="reasoningEffort" class="sr-only" type="radio" name="reasoning-effort" :value="level" />
                   <span>{{ level }}</span>
                 </label>
-              </fieldset>
+              </div>
             </div>
-            <button v-if="stopMode" type="button" class="agent-chat__send" :disabled="Boolean(treeMutation) || cancelling || submitting || !pending?.canInterrupt" aria-label="停止回答" title="停止回答" @click="stopAnswer"><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="6" y="6" width="8" height="8" rx="1" fill="currentColor" stroke="none" /></svg></button><button v-else type="submit" class="agent-chat__send" :disabled="Boolean(treeMutation) || submissionUncertain || submitting || listLoading || loading || !tree.loaded || !hasComposerInput || Boolean(pending) && !pendingHere || convertingAttachments" :aria-label="pendingHere || queuedQuestions.length ? '加入消息队列' : '发送问题'" :title="pendingHere || queuedQuestions.length ? '加入队列，等待当前轮次完成（Shift + Enter）' : '发送问题（Shift + Enter）'"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 15V5m-4 4 4-4 4 4" /></svg></button>
+            <button v-if="stopMode" type="button" class="agent-chat__send" :disabled="Boolean(treeMutation) || cancelling || submitting || !pending?.canInterrupt" :aria-label="t('停止回答')" :title="t('停止回答')" @click="stopAnswer"><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="6" y="6" width="8" height="8" rx="1" fill="currentColor" stroke="none" /></svg></button><button v-else type="submit" class="agent-chat__send" :disabled="Boolean(treeMutation) || submissionUncertain || submitting || listLoading || loading || !tree.loaded || !hasComposerInput || convertingAttachments" :aria-label="pendingHere || queuedQuestions.length ? t('加入消息队列') : t('发送问题')" :title="pendingHere || queuedQuestions.length ? t('加入队列，等待当前轮次完成（Shift + Enter）') : t('发送问题（Shift + Enter）')"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 15V5m-4 4 4-4 4 4" /></svg></button>
             </div>
           </div>
         </div>
       </form>
-      <span class="sr-only" role="status">{{ notice || (selectedNode?.status === 'generating' ? '正在生成回答' : '当前路径已就绪') }}</span>
+      <span class="sr-only" role="status">{{ notice || (selectedNode?.status === 'generating' ? t('正在生成回答') : t('当前路径已就绪')) }}</span>
     </section>
     <button
       ref="resizeHandle" class="assistant-workspace__resize-handle" type="button" role="separator"
-      aria-label="调整问答与问答树的宽度" aria-orientation="vertical" aria-controls="assistant-chat-panel assistant-tree-panel"
+      :aria-label="t('调整问答与问答树的宽度')" aria-orientation="vertical" aria-controls="assistant-chat-panel assistant-tree-panel"
       :aria-valuemin="Math.round(bounds.min)" :aria-valuemax="Math.round(bounds.max)" :aria-valuenow="displayedWidth"
-      :aria-valuetext="`问答窗口宽度 ${displayedWidth} 像素`" :style="{ left: `${displayedWidth}px` }"
-      title="拖动调整宽度；方向键微调，双击恢复默认"
+      :aria-valuetext="t('问答窗口宽度 {value0} 像素', { value0: displayedWidth })" :style="{ left: `${displayedWidth}px` }"
+      :title="t('拖动调整宽度；方向键微调，双击恢复默认')"
       @pointerdown="startResize" @pointermove="moveResize" @pointerup="finishResize" @pointercancel="finishResize" @lostpointercapture="finishResize"
       @keydown="resizeWithKeyboard" @dblclick="resetWidth"
     ><span aria-hidden="true"></span></button>
-    <DeleteQuestionTreeDialog :open="Boolean(deleteTarget) && active" :name="deleteTarget?.title || ''" :busy="treeMutation?.type === 'delete'" :error="deleteError" @close="closeTreeDelete" @confirm="confirmTreeDelete" />
+    <DeleteQuestionTreeDialog :open="Boolean(deleteTarget) && active" :name="deleteTarget?.title || ''" :busy="treeMutation?.type === 'delete'" :error="deleteError" @close="closeTreeDelete" @confirm="confirmTreeDelete">
+      <OperationToast :message="deleteTarget && active ? toastMessage : ''" :tone="toastTone" :revision="toastRevision" embedded />
+    </DeleteQuestionTreeDialog>
+    <Teleport to="body"><OperationToast :message="!deleteTarget && active ? toastMessage : ''" :tone="toastTone" :revision="toastRevision" /></Teleport>
     <PdfPreviewOverlay :open="Boolean(previewAttachment) && active" :src="previewAttachment?.url || ''" :label="previewAttachment?.file?.name || previewAttachment?.name || ''" :loading="previewLoading" :error="previewError" @close="previewAttachment = null" />
-    <QuestionTree id="assistant-tree-panel" :tree="tree" :selected-id="selectedId" :context-ids="contextIds" :active="active" @select="selectNode" @main-end="selectNode(tree.mainLeafId)" />
+    <Teleport to="body">
+      <dialog id="mobile-question-tree" ref="treeDrawer" class="mobile-tree-drawer" :class="{ 'is-visible': treeDrawerVisible }" :aria-label="t('问答树')" @cancel.prevent="closeTreeDrawer" @close="closeTreeDrawer" @click.self="closeTreeDrawer">
+        <div class="mobile-tree-drawer__surface">
+          <header class="mobile-tree-drawer__header"><div><strong>{{ t('问答树') }}</strong><span>{{ isNewExploration ? t('开始新探索') : tree.title }}</span></div><button type="button" data-drawer-close :aria-label="t('关闭问答树')" @click="closeTreeDrawer"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5 5 10 10M15 5 5 15" /></svg></button></header>
+          <div ref="treeDrawerContent" class="mobile-tree-drawer__content"></div>
+        </div>
+      </dialog>
+    </Teleport>
+    <Teleport :to="treeDrawerContent || 'body'" :disabled="!stacked || !treeDrawerContent">
+      <QuestionTree id="assistant-tree-panel" :tree="tree" :selected-id="selectedId" :context-ids="contextIds" :active="active && (!stacked || treeDrawerOpen)" :recenter-on-activate="stacked" :touch-navigation="stacked" @select="chooseDrawerNode" @main-end="chooseDrawerNode(tree.mainLeafId)" />
+    </Teleport>
   </div>
 </template>
 
@@ -297,8 +342,8 @@ onBeforeUnmount(() => { scrollDisposed = true; ++positioningRevision; scrollFoll
 .assistant-workspace__resize-handle span { width: 8px; height: 38px; background: linear-gradient(180deg, #7b70c3, #579a84); border: 1px solid #ffffffb8; border-radius: 999px; box-shadow: inset 1px 0 #ffffff5c; opacity: .42; transition: width .22s, height .34s cubic-bezier(.16, 1, .3, 1), opacity .2s, box-shadow .26s, transform .26s cubic-bezier(.16, 1, .3, 1); }
 .assistant-workspace__resize-handle:hover span, .assistant-workspace__resize-handle:focus-visible span, .is-resizing .assistant-workspace__resize-handle span { width: 10px; height: 46px; box-shadow: inset 1px 0 #ffffff8c, 0 0 10px #7168c35c, 0 0 18px #559a8442; opacity: .92; transform: scaleX(1.08); }
 .assistant-workspace__resize-handle:active span, .is-resizing .assistant-workspace__resize-handle span { height: 50px; opacity: 1; }
-.assistant-workspace.is-stacked { grid-template-columns: minmax(0, 1fr); height: auto; min-height: 100%; }
-.is-stacked .agent-chat { height: 680px; }
+.assistant-workspace.is-stacked { grid-template-columns: minmax(0, 1fr); height: 100%; min-height: 0; }
+.is-stacked .agent-chat { height: 100%; }
 .is-stacked .agent-chat::after { display: none; }
 .is-stacked .assistant-workspace__resize-handle { display: none; }
 .agent-chat { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; }
@@ -527,23 +572,24 @@ button { font: inherit; cursor: pointer; }
 .agent-chat__attachment > button:focus-visible { outline: 2px solid #9285ba; outline-offset: 1px; }
 .agent-chat__attachment-error { margin: 5px 0; color: #a85e60; font-size: 11px; line-height: 1.6; overflow-wrap: anywhere; }
 .agent-chat__reasoning { display: flex; align-items: center; gap: 9px; color: #8b9b91; font-size: 10px; }
-.agent-chat__reasoning-options { position: relative; display: flex; gap: 2px; min-width: 0; margin: 0; padding: 3px; background: #edf1ed; border: 1px solid #e3eae3; border-radius: 9px; }
-.agent-chat__reasoning-option { position: relative; z-index: 1; flex: 0 0 56px; text-align: center; cursor: pointer; }
+.agent-chat__reasoning-options { position: relative; isolation: isolate; display: grid; grid-template-columns: repeat(3, var(--reasoning-option-width, 56px)); flex: none; gap: 2px; min-width: 0; margin: 0; padding: 3px; background: #edf1ed; border: 1px solid #e3eae3; border-radius: 9px; }
+.agent-chat__reasoning-option { position: relative; z-index: 1; display: block; min-width: 0; width: var(--reasoning-option-width, 56px); text-align: center; cursor: pointer; -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
 .agent-chat__reasoning-option > span { position: relative; isolation: isolate; display: block; overflow: hidden; padding: 5px 0; color: #8b9990; border-radius: 6px; line-height: 1.2; transition: color .18s, background .18s, box-shadow .18s; }
 .agent-chat__reasoning-option:hover > span { color: #4e6758; }
 .agent-chat__reasoning-option > input:checked + span { color: #433878; }
-.agent-chat__reasoning-highlight { position: absolute; isolation: isolate; top: 3px; bottom: 3px; left: 3px; width: 56px; overflow: hidden; pointer-events: none; border-radius: 6px; background: #f0ecff; box-shadow: inset 0 0 0 1px #a597df55, 0 1px 5px #7970b52b; transition: transform .32s cubic-bezier(.22, 1, .36, 1); animation: reasoning-breathe 4.8s ease-in-out infinite; }
-.agent-chat__reasoning-highlight::before,
-.agent-chat__reasoning-highlight::after { position: absolute; z-index: -1; inset: -65%; content: ''; pointer-events: none; filter: blur(5px); animation: reasoning-liquid 7s ease-in-out infinite alternate; }
-.agent-chat__reasoning-highlight::before { background: radial-gradient(ellipse at 30% 40%, #818cf8b3, #a5b4fc33 45%, transparent 68%); }
-.agent-chat__reasoning-highlight::after { background: radial-gradient(ellipse at 70% 65%, #f0a3c8bd, #f9bdd733 43%, transparent 68%); animation-direction: alternate-reverse; animation-duration: 8.5s; }
+.agent-chat__reasoning-highlight { position: absolute; isolation: isolate; top: 3px; bottom: 3px; left: 3px; width: var(--reasoning-option-width, 56px); overflow: hidden; pointer-events: none; border-radius: 6px; background: #f0ecff; box-shadow: inset 0 0 0 1px #a597df55, 0 1px 5px #7970b52b; transition: transform .32s cubic-bezier(.22, 1, .36, 1); animation: reasoning-breathe 4.8s ease-in-out infinite; }
+.agent-chat__reasoning-liquid { position: absolute; inset: 0; overflow: hidden; border-radius: inherit; clip-path: inset(0 round 6px); transform: translateZ(0); }
+.agent-chat__reasoning-liquid::before,
+.agent-chat__reasoning-liquid::after { position: absolute; inset: -65%; content: ''; pointer-events: none; filter: blur(5px); animation: reasoning-liquid 7s ease-in-out infinite alternate; }
+.agent-chat__reasoning-liquid::before { background: radial-gradient(ellipse at 30% 40%, #818cf8b3, #a5b4fc33 45%, transparent 68%); }
+.agent-chat__reasoning-liquid::after { background: radial-gradient(ellipse at 70% 65%, #f0a3c8bd, #f9bdd733 43%, transparent 68%); animation-direction: alternate-reverse; animation-duration: 8.5s; }
 .agent-chat__reasoning.is-paused .agent-chat__reasoning-highlight,
-.agent-chat__reasoning.is-paused .agent-chat__reasoning-highlight::before,
-.agent-chat__reasoning.is-paused .agent-chat__reasoning-highlight::after { animation-play-state: paused; }
+.agent-chat__reasoning.is-paused .agent-chat__reasoning-liquid::before,
+.agent-chat__reasoning.is-paused .agent-chat__reasoning-liquid::after { animation-play-state: paused; }
 .agent-chat__reasoning-option > input:focus-visible + span { outline: 2px solid #9285ba; outline-offset: 2px; }
 @keyframes reasoning-liquid { 0% { transform: translate(-9%, -8%) rotate(-12deg) scale(.92); opacity: .65; } 50% { transform: translate(9%, 6%) rotate(12deg) scale(1.12); opacity: .95; } 100% { transform: translate(-3%, 10%) rotate(-6deg) scale(1); opacity: .75; } }
 @keyframes reasoning-breathe { 0%, 100% { box-shadow: inset 0 0 0 1px #a597df55, 0 1px 5px #7970b51f; } 50% { box-shadow: inset 0 0 0 1px #a597df80, 0 0 7px #a59ae04d, 0 0 3px #eca2c838; } }
-@media (prefers-reduced-motion: reduce) { .agent-chat__reasoning-option > span, .agent-chat__reasoning-highlight, .agent-chat__reasoning-highlight::before, .agent-chat__reasoning-highlight::after { transition: none; animation: none; } }
+@media (prefers-reduced-motion: reduce) { .agent-chat__reasoning-option > span, .agent-chat__reasoning-highlight, .agent-chat__reasoning-liquid::before, .agent-chat__reasoning-liquid::after { transition: none; animation: none; } }
 .agent-chat__composer-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; }
 .agent-chat__submit-controls { display: flex; flex: 0 1 auto; flex-wrap: wrap; align-items: center; justify-content: flex-end; max-width: 100%; gap: 10px 14px; margin-left: auto; }
 .agent-chat__reasoning-send { display: flex; flex: none; align-items: center; gap: 10px; }
@@ -555,7 +601,76 @@ button:disabled { opacity: .38; cursor: default; }
 button:focus-visible, select:focus-visible, .agent-chat__messages:focus-visible { outline: 2px solid #9285ba; outline-offset: 2px; }
 .agent-chat__empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; min-height: 100%; padding: 40px 24px; text-align: center; }
 .sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-@media (max-width: 900px) { .assistant-workspace { grid-template-columns: minmax(0, 1fr); height: auto; min-height: 100%; } .agent-chat { height: 680px; } .agent-chat::after, .assistant-workspace__resize-handle { display: none; } }
-@media (max-width: 640px) { .agent-chat { height: 650px; } .agent-chat__header { padding: 22px 20px 18px; } .agent-chat__message-list { padding: 24px 20px; } .agent-chat__composer { margin-right: 14px; margin-left: 14px; } }
+/* 保留桌面双栏；小屏树图移入同一实例的侧边抽屉。 */
+.agent-chat__tree-trigger { display: none; align-items: center; justify-content: center; gap: 7px; min-height: 34px; padding: 0 11px; color: #567760; font-size: 12px; background: #f1f6f2; border: 1px solid #dae6dd; border-radius: 10px; box-shadow: inset 0 1px #fff, 0 2px 8px #395a4308; }
+.agent-chat__tree-trigger > svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.35; stroke-linecap: round; stroke-linejoin: round; }
+.mobile-tree-drawer { position: fixed; --drawer-top-gap: max(16px, env(safe-area-inset-top)); --drawer-bottom-gap: max(16px, env(safe-area-inset-bottom)); inset: var(--drawer-top-gap) 8px var(--drawer-bottom-gap) auto; width: min(94vw, 620px); max-width: none; height: calc(100dvh - var(--drawer-top-gap) - var(--drawer-bottom-gap)); max-height: none; margin: 0; padding: 0; overflow: hidden; color: #344c3e; background: #f8fbf9; border: 1px solid #ffffffce; border-radius: 24px; box-shadow: -12px 12px 48px #273e4b30, 0 3px 12px #273e4b14; opacity: 0; transform: translateX(105%); transition: transform .26s cubic-bezier(.22,1,.36,1), opacity .2s ease; }
+.mobile-tree-drawer.is-visible { opacity: 1; transform: translateX(0); }
+.mobile-tree-drawer::backdrop { background: #263d4b3b; backdrop-filter: blur(5px); opacity: 0; transition: opacity .26s ease; }
+.mobile-tree-drawer.is-visible::backdrop { opacity: 1; }
+.mobile-tree-drawer__surface { display: flex; flex-direction: column; height: 100%; }
+.mobile-tree-drawer__header { display: flex; align-items: center; justify-content: space-between; flex: none; gap: 12px; padding: 20px 18px 16px; border-bottom: 1px solid #dfe8e1; }
+.mobile-tree-drawer__header > div { display: grid; gap: 6px; min-width: 0; }
+.mobile-tree-drawer__header strong { font-size: 15px; font-weight: 650; }
+.mobile-tree-drawer__header span { overflow: hidden; color: #85988c; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.mobile-tree-drawer__header button { display: grid; place-items: center; flex: none; width: 38px; height: 38px; padding: 0; color: #7a9182; background: #edf3ef; border: 1px solid #e0e9e2; border-radius: 12px; }
+.mobile-tree-drawer__header button svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; }
+.mobile-tree-drawer__content { display: flex; flex: 1; min-height: 0; }
+.mobile-tree-drawer__content :deep(.question-tree) { flex: 1; width: 100%; height: 100%; border: 0; }
+.mobile-tree-drawer__content :deep(.question-tree__header) { gap: 8px; padding: 15px 16px; }
+.mobile-tree-drawer__content :deep(.question-tree__header h2) { display: none; }
+.mobile-tree-drawer__content :deep(.question-tree__header-actions) { gap: 6px; }
+.mobile-tree-drawer__content :deep(.question-tree__main-end) { padding: 6px; font-size: 10px; }
+.mobile-tree-drawer__content :deep(.question-tree__legend) { flex-wrap: wrap; padding: 0 16px 12px; }
+.mobile-tree-drawer__content :deep(.question-tree__footer) { padding: 12px; gap: 9px; }
+.mobile-tree-drawer__content :deep(.question-tree__tools) { justify-content: space-between; width: 100%; }
+.mobile-tree-drawer__content :deep(.question-tree__tools button) { min-height: 34px; }
+@media (max-width: 900px) {
+  .assistant-workspace, .assistant-workspace.is-stacked { grid-template-columns: minmax(0, 1fr); height: 100%; min-height: 0; }
+  .assistant-workspace > :deep(.question-tree) { display: none; }
+  .agent-chat { height: 100%; min-height: 0; }
+  .agent-chat::after, .assistant-workspace__resize-handle { display: none; }
+  .agent-chat__header { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 9px 12px; padding: 14px 16px 10px; }
+  .agent-chat__tree-picker { grid-column: 1 / -1; width: 100%; gap: 10px; }
+  .agent-chat__tree-picker > :deep(.tree-select) { flex: 1; }
+  .agent-chat__font-size { grid-column: 1; grid-row: 2; justify-self: start; margin-left: 0; }
+  .agent-chat__tree-trigger { display: inline-flex; grid-column: 2; grid-row: 2; }
+  .agent-chat__loading { right: 16px; bottom: -12px; }
+  .agent-chat__message-list { gap: 24px; padding: 20px 16px; }
+  .agent-chat__question p { max-width: 94%; }
+  .agent-chat__sent-attachments { max-width: 94%; }
+  .agent-chat__empty { min-height: 100%; padding: 24px 16px; }
+  .agent-chat__composer { margin: 0 10px 10px; padding: 10px 12px; }
+  .agent-chat__composer textarea { font-size: 16px; min-height: 52px; }
+  .agent-chat__composer-actions { display: grid; grid-template-columns: 36px minmax(0, 1fr); gap: 7px 10px; }
+  .agent-chat__attachment-controls { grid-column: 1; grid-row: 1; }
+  .agent-chat__submit-controls { display: contents; }
+  .agent-chat__submit-controls > :deep(.advance-mode) { grid-column: 2; grid-row: 1; justify-self: end; }
+  .agent-chat__reasoning-send { grid-column: 1 / -1; grid-row: 2; justify-content: space-between; gap: 10px; min-width: 0; }
+  .agent-chat__reasoning { min-width: 0; gap: 7px; }
+  .agent-chat__composer-actions > span { grid-column: 1 / -1; grid-row: 3; min-width: 0; font-size: 9px; text-align: center; }
+  .agent-chat__service-status { margin: 0 16px 8px; }
+}
+@media (max-width: 900px) {
+  .workspace.is-short-viewport:not(:has(.tree-select.is-open)) .agent-chat__header { grid-template-columns: minmax(0, 1fr) 38px; padding: 7px 12px; }
+  .workspace.is-short-viewport:not(:has(.tree-select.is-open)) .agent-chat__tree-picker { grid-column: 1; }
+  .workspace.is-short-viewport:not(:has(.tree-select.is-open)) .agent-chat__tree-picker > span,
+  .workspace.is-short-viewport:not(:has(.tree-select.is-open)) .agent-chat__font-size,
+  .workspace.is-short-viewport:not(:has(.tree-select.is-open)) .agent-chat__tree-trigger > span { display: none; }
+  .workspace.is-short-viewport:not(:has(.tree-select.is-open)) .agent-chat__tree-trigger { grid-column: 2; grid-row: 1; width: 38px; padding: 0; }
+  .workspace.is-short-viewport:not(:has(.tree-select.is-open)) .agent-chat__tree-picker :deep(.tree-select__trigger) { min-height: 42px; padding-block: 7px; }
+  .workspace.is-short-viewport .agent-chat__composer { padding: 7px 10px; margin-bottom: 7px; }
+  .workspace.is-short-viewport .agent-chat__composer textarea { height: 44px; min-height: 44px; }
+  .workspace.is-short-viewport .agent-chat__composer-actions { row-gap: 4px; }
+  .workspace.is-short-viewport .agent-chat__empty { padding-block: 12px; }
+  .workspace.is-short-viewport .agent-chat__message-list.is-empty { padding-block: 8px; }
+  .workspace.is-short-viewport .agent-chat__empty :deep(.handwriting-prompt-shell) { min-height: 0; }
+  .workspace.is-short-viewport .agent-chat__empty :deep(.handwriting-prompt) { width: 120px; }
+}
+@media (max-width: 360px) {
+  .agent-chat__reasoning { gap: 5px; font-size: 9px; }
+  .agent-chat__reasoning { --reasoning-option-width: 48px; }
+}
+@media (prefers-reduced-motion: reduce) { .mobile-tree-drawer, .mobile-tree-drawer::backdrop { transition: none; } }
 @media (prefers-reduced-motion: reduce) { .agent-chat__thinking { animation: none; } .agent-chat__answer-actions button, .assistant-workspace__resize-handle span { transition: none; } }
 </style>

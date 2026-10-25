@@ -1,4 +1,5 @@
-export function createQuestionTree(id, title = '新的问答树') {
+import { t, LocalizedError, uiText } from '../i18n/index.js'
+export function createQuestionTree(id, title = t('新的问答树')) {
   return { id, title, mainLeafId: null, nodes: [] }
 }
 
@@ -8,9 +9,9 @@ export function getContextPath(tree, nodeId) {
   const nodes = new Map(tree.nodes.map(node => [node.id, node]))
   let current = nodeId
   while (current) {
-    if (seen.has(current)) throw new Error('问答树中存在循环引用')
+    if (seen.has(current)) throw new LocalizedError(uiText('问答树中存在循环引用'))
     const node = nodes.get(current)
-    if (!node) throw new Error('问答任务不存在')
+    if (!node) throw new LocalizedError(uiText('问答任务不存在'))
     seen.add(current)
     path.unshift(node)
     current = node.parentId
@@ -20,12 +21,12 @@ export function getContextPath(tree, nodeId) {
 
 export function appendQuestion(tree, { id, parentId = null, question, newBranch = false, createdAt = new Date().toISOString() }) {
   const content = question.trim()
-  if (!content) throw new Error('请输入问题')
-  if (tree.nodes.some(node => node.id === id)) throw new Error('任务 ID 重复')
+  if (!content) throw new LocalizedError(uiText('请输入问题'))
+  if (tree.nodes.some(node => node.id === id)) throw new LocalizedError(uiText('任务 ID 重复'))
   const parent = tree.nodes.find(node => node.id === parentId)
-  if (tree.nodes.length && !parent) throw new Error('请选择有效的上下文节点')
-  if (!tree.nodes.length && parentId) throw new Error('根任务不能指定父节点')
-  if (parent?.status === 'generating') throw new Error('请等待当前任务结束')
+  if (tree.nodes.length && !parent) throw new LocalizedError(uiText('请选择有效的上下文节点'))
+  if (!tree.nodes.length && parentId) throw new LocalizedError(uiText('根任务不能指定父节点'))
+  if (parent?.status === 'generating') throw new LocalizedError(uiText('请等待当前任务结束'))
   const hasContinuation = parent && tree.nodes.some(node => node.parentId === parentId && node.branchId === parent.branchId)
   const branchId = !parent ? 'main' : newBranch || hasContinuation ? id : parent.branchId
   const node = { id, parentId, branchId, question: content, answer: '', status: 'generating', createdAt }

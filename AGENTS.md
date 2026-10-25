@@ -18,7 +18,7 @@
 ## 当前实现与技术约定
 
 - 当前使用 Vue 3 + Vite、JavaScript、ES Modules 和 Vue 单文件组件的 `<script setup>` 写法；已建立公共工作台和问答树，接入后端登录、平台目录、管理人资料与头像。问答已接入 knowledge-accumulation-be 的 exploration/resource，支持真实树历史、SSE、停止、原子调整方向和鉴权附件预览；注册中心与合同管理平台入口已按环境开放。
-- `src/main.js` 为启动入口，`src/App.vue` 为根组件，`src/components/` 放置组件，`src/style.css` 为全局样式，`src/assets/` 与 `public/` 用于静态资源，`vite.config.js` 为构建配置。
+- `src/bootstrap.js` 负责启动诊断并加载业务入口，`src/main.js` 创建应用，`src/App.vue` 为根组件，`src/components/` 放置组件，`src/style.css` 为全局样式，`src/assets/` 与 `public/` 用于静态资源，`vite.config.js` 为构建配置。
 - `src/layouts/WorkspaceLayout.vue` 承载品牌、顶部导航和具名内容插槽；当前通过 URL Hash 切换两页，支持浏览器前进、后退。工作台、业务页面和按平台划分的详情使用 Vue `KeepAlive`；新增可切换业务容器应沿用缓存边界，停用时释放交互和监听资源，切换用户销毁旧缓存。公共外观与分子背景参照 `registry-fe`，不包含其登录及审核业务。
 - 当前尚未引入路由、全局状态库、UI 组件库或独立请求库。按实际需求选型，不将拟采用的依赖或目录写成已有设施。
 - 现有 npm 脚本为 `npm run dev`、`npm run build`、`npm run preview` 与 `npm test`，分别用于开发、生产构建、构建预览与 Node 功能测试。当前没有 Lint 或格式检查脚本，不引用不存在的命令。
@@ -60,6 +60,8 @@
 6. **边界显式**：业务规则、外部接口、配置、环境差异和失败策略应在合适的代码或文档层级明确表达，避免依赖隐含约定。
 
 7. **安全默认**：不在代码或文档中提交密钥、令牌和真实敏感数据；处理用户输入、外部响应和持久化数据时应考虑校验与失败边界。
+
+前端固定文案通过 `src/i18n/index.js` 与英文词典维护，新增界面文字需同时提供自然英文；禁止对后端字段、用户输入和模型输出做全局字符串替换。前端错误使用带来源的本地化消息，保留服务端错误原文。具体边界见[界面语言](description/platform/language.md)。
 
 ---
 

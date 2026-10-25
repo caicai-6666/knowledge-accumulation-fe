@@ -3,11 +3,29 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/webp" href="/src/assets/logo.webp" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <link rel="stylesheet" href="/src/authentication-status.css" />
     <title>知识沉淀 · 企业知识统一入口</title>
   </head>
   <body>
-    <div id="app"></div>
-    <script type="module" src="/src/main.js"></script>
+    <div id="app">
+      <div id="app-startup" class="knowledge-startup" hidden>
+        <section class="authentication-status" aria-live="polite" aria-busy="true" data-molecular-field-block>
+          <div class="authentication-status__copy">
+            <div class="authentication-status__content">
+              <h1 id="startup-title">正在进入</h1>
+              <div id="startup-loading" class="authentication-status__loading" role="status" aria-label="正在连接知识沉淀服务，请稍候"><span class="authentication-status__spinner" aria-hidden="true"></span></div>
+              <div id="startup-actions" class="authentication-status__failure" hidden>
+                <p id="startup-message"></p>
+                <button id="startup-retry" type="button">重新尝试</button>
+              </div>
+            </div>
+          </div>
+          <details id="startup-diagnostics" class="authentication-status__diagnostics" hidden><summary id="startup-details-label">加载信息</summary><pre id="startup-details"></pre></details>
+        </section>
+      </div>
+    </div>
+    <noscript>请启用 JavaScript 以使用知识沉淀。 / Enable JavaScript to use Knowledge Hub.</noscript>
+    <script type="module" src="/src/bootstrap.js"></script>
   </body>
 </html>

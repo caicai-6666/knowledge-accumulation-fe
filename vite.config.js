@@ -21,8 +21,13 @@ export default defineConfig(({ command, mode, isPreview }) => {
   return {
     base: development ? '/dev/knowledge-accumulation/' : '/knowledge-accumulation/',
     plugins: [vue(), developmentMapping(), ...(authMode === 'development' ? [developerAuthentication(env.KNOWLEDGE_DEVELOPER_LOGIN_CREDENTIAL)] : [])],
-    cacheDir: 'node_modules/vite-cache',
+    // 缓存放在项目根目录下，避免 npm 安装依赖时清理 node_modules 中的额外目录。
+    cacheDir: 'cache/vite',
+    // 显式预构建全部运行依赖，避免首访发现新依赖后更换版本而令并发请求失效。
+    optimizeDeps: { include: ['vue', 'markdown-it', 'dingtalk-jsapi', 'pdfjs-dist/build/pdf.mjs'], noDiscovery: true },
     server: {
+      // 钉钉预加载的旧开发脚本可能引用已经过期的预构建版本；生产哈希资源继续长期缓存。
+      headers: { 'Cache-Control': 'no-store' },
       host: '0.0.0.0',
       port: 24080,
       strictPort: true,

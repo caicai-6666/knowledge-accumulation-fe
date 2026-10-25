@@ -25,6 +25,7 @@
 | --- | --- |
 | [统一登录与共享凭据](platform/authentication.md) | 配置开发与生产认证，了解 localStorage 交接与失败策略 |
 | [环境与部署](platform/deployment.md) | 配置资源前缀、开发映射、API 代理和生产转发 |
+| [界面语言](platform/language.md) | 查看中英文切换、浏览器记忆及前后端文案边界 |
 | [问答联调与初始化](platform/exploration-integration.md) | 查看后端运行条件、首次建表、重启影响及验收状态 |
 
 ## 后端参考

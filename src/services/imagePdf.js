@@ -1,3 +1,4 @@
+import { LocalizedError, uiText } from '../i18n/index.js'
 // 沿用 contract-service-fe 的本地图片转 PDF 实现，不发送原始图片到服务端。
 const imageTypes = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif', 'image/bmp', 'image/avif'])
 export function isSupportedImage(file) {
@@ -75,7 +76,7 @@ function canvasToJpeg(canvas) {
 }
 
 export async function convertImageFileToPdf(file) {
-  if (!isSupportedImage(file)) throw new Error('目前仅支持 PNG、JPEG、WebP、GIF、BMP 和 AVIF 图片')
+  if (!isSupportedImage(file)) throw new LocalizedError(uiText('目前仅支持 PNG、JPEG、WebP、GIF、BMP 和 AVIF 图片'))
   const imageUrl = URL.createObjectURL(file)
 
   try {

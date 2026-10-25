@@ -12,7 +12,7 @@ export function useAssistantPanelResize(active) {
   const displayedWidth = ref(0)
   const bounds = ref({ min: CHAT_MIN_WIDTH, max: CHAT_MIN_WIDTH })
   const resizing = ref(false)
-  const stacked = ref(false)
+  const stacked = ref(Boolean(typeof window !== 'undefined' && window.matchMedia?.('(max-width: 900px)').matches))
   let observer
   let measureFrame = 0
   let drag = null

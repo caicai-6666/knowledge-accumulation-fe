@@ -1,4 +1,5 @@
 <script setup>
+import { t } from '../i18n/index.js'
 import { computed } from 'vue'
 import { renderPlatformDescription } from '../models/platformDescription.js'
 
@@ -8,7 +9,7 @@ const html = computed(() => renderPlatformDescription(props.description))
 
 <template>
   <div v-if="html" class="platform-description" v-html="html"></div>
-  <p v-else class="platform-description platform-description--empty">暂无平台摘要</p>
+  <p v-else class="platform-description platform-description--empty">{{ t('暂无平台摘要') }}</p>
 </template>
 
 <style scoped>

@@ -1,20 +1,23 @@
 <script setup>
+import { t } from '../i18n/index.js'
 import { computed, ref, useId, watch } from 'vue'
 import MarkdownMessage from './MarkdownMessage.vue'
-import onlineSearchImage from '../assets/online-search.webp'
-import externalExpertImage from '../assets/external-expert.webp'
+const onlineSearchImage = new URL('../assets/online-search.webp', import.meta.url).href
+const localSearchImage = new URL('../assets/local-search.webp', import.meta.url).href
+const externalExpertImage = new URL('../assets/external-expert.webp', import.meta.url).href
 import { answerProcessSteps, answerStepPresentation, answerTimingLabel } from '../models/answerProcess.js'
 
 const props = defineProps({ task: { type: Object, required: true }, finalVisible: Boolean, active: Boolean })
-const emit = defineEmits(['display-updated', 'toggle'])
-const progressImages = { 'online-search': onlineSearchImage, 'external-expert': externalExpertImage }
+const emit = defineEmits(['display-updated', 'toggle', 'reveal-start'])
+const progressImages = { 'online-search': onlineSearchImage, 'external-expert': externalExpertImage, 'local-search': localSearchImage }
 const id = `answer-process-${useId()}`
 const expanded = ref(false)
 const displayStates = ref({})
 const steps = computed(() => answerProcessSteps(props.task))
 const present = (step, active = false) => answerStepPresentation(step, props.task.status, { active })
 const caughtUp = computed(() => steps.value.every(step => displayStates.value[step.id]?.complete))
-const canCollapse = computed(() => props.task.status !== 'generating' || props.finalVisible && caughtUp.value)
+const revealing = computed(() => steps.value.some(step => step.reveal || displayStates.value[step.id]?.complete === false))
+const canCollapse = computed(() => props.task.status !== 'generating' ? props.task.status !== 'complete' || !revealing.value : props.finalVisible && caughtUp.value)
 const collapsed = computed(() => canCollapse.value && !expanded.value)
 const timing = computed(() => answerTimingLabel(props.task))
 function updateStep(step, state) {
@@ -31,8 +34,8 @@ watch(() => props.task.status, status => { if (['cancelled', 'superseded', 'fail
       <div v-if="timing || canCollapse && steps.length" class="communication-turn-timing" aria-live="off">
         <div class="communication-turn-timing__content">
           <div class="communication-turn-timing__row">
-            <span v-if="timing" title="本轮服务端处理用时">{{ timing }}</span>
-            <button v-if="canCollapse && steps.length" type="button" class="communication-process-toggle" :aria-expanded="!collapsed" :aria-controls="id" :aria-label="collapsed ? '展开处理过程' : '收起处理过程'" :title="collapsed ? '展开处理过程' : '收起处理过程'" @click="toggle"><svg viewBox="0 0 16 16" aria-hidden="true" :class="{ 'is-expanded': !collapsed }"><path d="m6 4 4 4-4 4" /></svg></button>
+            <span v-if="timing" :title="t('本轮服务端处理用时')">{{ timing }}</span>
+            <button v-if="canCollapse && steps.length" type="button" class="communication-process-toggle" :aria-expanded="!collapsed" :aria-controls="id" :aria-label="collapsed ? t('展开处理过程') : t('收起处理过程')" :title="collapsed ? t('展开处理过程') : t('收起处理过程')" @click="toggle"><svg viewBox="0 0 16 16" aria-hidden="true" :class="{ 'is-expanded': !collapsed }"><path d="m6 4 4 4-4 4" /></svg></button>
           </div>
           <hr aria-hidden="true" />
         </div>
@@ -40,12 +43,12 @@ watch(() => props.task.status, status => { if (['cancelled', 'superseded', 'fail
     </Transition>
     <div :id="id" class="communication-process-region" :class="{ 'is-collapsed': collapsed }" :inert="collapsed" :aria-hidden="collapsed">
       <div class="communication-process-region__content">
-        <section v-for="step in steps" :key="step.id" class="answer-process__step" :aria-label="present(step).fullText">
-          <div class="communication-step" :class="{ 'communication-step--settled': step.status !== 'generating', 'communication-step--thinking': step.type === 'thinking' }">
+        <section v-for="step in steps" :key="step.id" class="answer-process__step" :aria-label="step.kind === 'message' ? undefined : present(step).fullText">
+          <div v-if="step.kind !== 'message'" class="communication-step" :class="{ 'communication-step--settled': step.status !== 'generating', 'communication-step--thinking': step.type === 'thinking' }">
             <img v-if="progressImages[step.type]" class="communication-progress-icon" :src="progressImages[step.type]" width="16" height="16" alt="" aria-hidden="true" /><i v-else-if="step.type !== 'thinking'" aria-hidden="true"></i>
             <span class="communication-step__label" :title="present(step).fullText"><span class="communication-step__measure" aria-hidden="true">{{ present(step, true).text }}</span><span class="communication-step__text">{{ present(step).text }}</span><span class="communication-step__pulse" aria-hidden="true"><span>{{ present(step).text }}</span></span></span>
           </div>
-          <MarkdownMessage :content="step.content" :stream-state="step.status === 'generating' ? 'streaming' : 'completed'" :animate="active && !collapsed" stabilize-height @display-state="updateStep(step, $event)" />
+          <MarkdownMessage :content="step.content" :reveal-on-mount="Boolean(step.reveal)" @reveal-start="$emit('reveal-start', step.id)" :stream-state="step.status === 'generating' ? 'streaming' : 'completed'" :animate="active && !collapsed" stabilize-height @display-state="updateStep(step, $event)" />
         </section>
       </div>
     </div>

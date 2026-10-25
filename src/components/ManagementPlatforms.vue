@@ -1,17 +1,18 @@
 <script setup>
+import { t } from '../i18n/index.js'
 import { computed, ref, watch } from 'vue'
 import PlatformNavigation from './PlatformNavigation.vue'
 import PlatformDetail from './PlatformDetail.vue'
 import { presentPlatform } from '../data/platformPresentation.js'
 import { usePlatforms } from '../composables/usePlatforms.js'
-import sleepUrl from '../assets/sleep.webp'
+const sleepUrl = new URL('../assets/sleep.webp', import.meta.url).href
 
 const props = defineProps({ active: Boolean, user: { type: Object, default: null } })
 const emit = defineEmits(['authentication-expired'])
 const { platforms: directory, status, error, refresh } = usePlatforms(() => props.active, () => props.user, {
   onAuthenticationExpired: () => emit('authentication-expired'),
 })
-const platforms = computed(() => directory.value.map(presentPlatform))
+const platforms = computed(() => directory.value.filter(platform => platform.is_management_entry === true).map(presentPlatform))
 const selectedCode = ref('')
 const selectedPlatform = computed(() => platforms.value.find(platform => platform.code === selectedCode.value))
 watch(platforms, items => {
@@ -21,23 +22,23 @@ watch(platforms, items => {
 
 <template>
   <div class="management-platforms">
-    <aside class="platform-sidebar" aria-label="管理平台">
+    <aside class="platform-sidebar" :aria-label="t('管理平台')">
       <PlatformNavigation v-model="selectedCode" :platforms="platforms" :active="active" />
       <div v-if="status === 'error'" class="platform-load-state" role="alert">
         <p>{{ error }}</p>
-        <button type="button" @click="refresh">重新加载</button>
+        <button type="button" @click="refresh">{{ t('重新加载') }}</button>
       </div>
-      <p v-else-if="status === 'loading'" class="platform-load-message" role="status">正在加载平台…</p>
-      <p v-else-if="status === 'ready' && !directory.length" class="platform-load-message">暂无平台</p>
+      <p v-else-if="status === 'loading'" class="platform-load-message" role="status">{{ t('正在加载平台…') }}</p>
+      <p v-else-if="status === 'ready' && !platforms.length" class="platform-load-message">{{ t('暂无平台') }}</p>
     </aside>
 
-    <section class="platform-detail" :aria-labelledby="selectedPlatform ? 'platform-detail-title' : undefined" :aria-label="selectedPlatform ? undefined : '平台信息'">
+    <section class="platform-detail" :aria-labelledby="selectedPlatform ? 'platform-detail-title' : undefined" :aria-label="selectedPlatform ? undefined : t('平台信息')">
         <KeepAlive :max="12">
           <PlatformDetail v-if="selectedPlatform" :key="selectedPlatform.code" :platform="selectedPlatform" />
         </KeepAlive>
         <div v-if="!selectedPlatform" key="unselected" class="platform-detail__placeholder">
           <img :src="sleepUrl" alt="" draggable="false" />
-          <p>选择一个平台</p>
+          <p>{{ t('选择一个平台') }}</p>
         </div>
     </section>
   </div>

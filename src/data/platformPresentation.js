@@ -1,5 +1,5 @@
-import contractIconUrl from '../assets/contract.webp'
-import registryIconUrl from '../assets/registry.webp'
+const contractIconUrl = new URL('../assets/contract.webp', import.meta.url).href
+const registryIconUrl = new URL('../assets/registry.webp', import.meta.url).href
 
 const presentation = {
   'contract-pheno': {

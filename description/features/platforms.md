@@ -1,6 +1,6 @@
 # 管理平台入口
 
-管理平台页提供平台选择、摘要、管理人列表与平台入口，入口为顶部“管理平台”。平台资料通过 `GET /knowledge-accumulation/api/platform/list` 读取 knowledge-accumulation-be 的[平台列表接口](../../../knowledge-accumulation-be/description/api/platform.md#查询平台列表)，不再使用模拟平台或人员。
+管理平台页提供平台选择、摘要、管理人列表与平台入口，入口为顶部“管理平台”。平台资料通过 `GET /knowledge-accumulation/api/platform/list` 读取 knowledge-accumulation-be 的[平台列表接口](../../../knowledge-accumulation-be/description/api/platform.md#查询平台列表)，不再使用模拟平台或人员。仅展示 `is_management_entry === true` 的平台，保持接口顺序；筛选后为空时显示暂无平台。
 
 ## 布局与交互
 
@@ -47,7 +47,7 @@
 
 `PlatformNavigation.vue` 负责选择栏，`ManagementPlatforms.vue` 负责选择与详情缓存，`PlatformDetail.vue` 承载描述、进入按钮和管理员两栏内容，`usePlatforms.js` 负责加载状态和生命周期，`services/platforms.js` 集中处理认证请求、响应验证、75 秒超时与错误。首次进入管理页时加载，切换页保留数据和选择；身份重新确认后刷新，用户变更、失败和迟到响应不会继续展示旧用户目录。页面停用会取消未完成的目录请求，再次激活时补载；成功目录在普通页面往返时不重复加载。
 
-`data/platformPresentation.js` 仅维护图标、配色及已确认的入口地址。后端合同平台代码为 `contract-pheno`，使用 `src/assets/contract.webp`；注册中心使用 `src/assets/registry.webp`。其他子平台使用通用图标，名称和摘要不从代码猜测。不按 `is_alive` 隐藏平台，也不将中间件存活状态作为访问权限或网页可达性。
+`data/platformPresentation.js` 仅维护图标、配色及已确认的入口地址。后端合同平台代码为 `contract-pheno`，使用 `src/assets/contract.webp`；注册中心使用 `src/assets/registry.webp`。其他子平台使用通用图标，名称和摘要不从代码猜测。响应严格校验 `supports_a2a`、`is_sub_management_platform`、`is_management_entry` 为 boolean；缺失或类型错误按接口异常处理。管理入口只按 `is_management_entry` 筛选，不由 A2A、子管理平台或管理员信息推断；入口标记撤销后清除已选详情。不按 `is_alive` 隐藏入口平台，也不将中间件存活状态作为访问权限或网页可达性。
 
 头像复用 `UserAvatar.vue`，从 `admins[].avatar_url` 取得文件名，携带共享 token 调用头像接口；空头像或读取失败使用默认人像，取消和 Blob URL 清理见[用户头像](../platform/authentication.md#用户头像)。同名管理人保留独立列表项，不补造 userid、角色或部门。空管理员数组显示“暂无管理人”。
 

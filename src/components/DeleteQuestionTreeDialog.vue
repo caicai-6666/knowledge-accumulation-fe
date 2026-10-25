@@ -1,6 +1,7 @@
 <script setup>
+import { t } from '../i18n/index.js'
 import { computed, nextTick, onBeforeUnmount, onDeactivated, ref, watch } from 'vue'
-import surpriseImage from '../assets/surprise.webp'
+const surpriseImage = new URL('../assets/surprise.webp', import.meta.url).href
 
 const props = defineProps({
   open: Boolean,
@@ -12,7 +13,7 @@ const emit = defineEmits(['close', 'confirm'])
 const dialog = ref(null)
 const input = ref(null)
 const confirmation = ref('')
-const expected = computed(() => `我确认删除${props.name}`)
+const expected = computed(() => t('我确认删除{value0}', { value0: props.name }))
 const allowed = computed(() => confirmation.value === expected.value && !props.busy)
 let previousFocus = null
 
@@ -29,7 +30,7 @@ watch(() => props.open, async (open) => {
     if (previousFocus?.isConnected && !previousFocus.closest('[inert]')) previousFocus.focus()
   }
 }, { immediate: true })
-watch(() => props.name, () => { confirmation.value = '' })
+watch(expected, () => { confirmation.value = '' })
 function close() { if (!props.busy) emit('close') }
 function confirm() { if (allowed.value) emit('confirm', confirmation.value) }
 onDeactivated(() => dialog.value?.close())
@@ -40,22 +41,23 @@ onBeforeUnmount(() => dialog.value?.close())
   <Teleport to="body">
     <dialog ref="dialog" class="question-tree-delete-dialog" aria-labelledby="question-tree-delete-title" aria-describedby="question-tree-delete-description" :aria-busy="busy" @cancel.prevent="close" @click.self="close">
       <form class="question-tree-delete-dialog__card" @submit.prevent="confirm">
+        <slot />
         <header>
           <img class="question-tree-delete-dialog__illustration" :src="surpriseImage" width="96" height="96" alt="" />
-          <button type="button" class="question-tree-delete-dialog__close" :disabled="busy" aria-label="关闭删除确认" @click="close">×</button>
+          <button type="button" class="question-tree-delete-dialog__close" :disabled="busy" :aria-label="t('关闭删除确认')" @click="close">×</button>
         </header>
-        <h2 id="question-tree-delete-title">删除这棵问答树？</h2>
+        <h2 id="question-tree-delete-title">{{ t('删除这棵问答树？') }}</h2>
         <p class="question-tree-delete-dialog__name">{{ name }}</p>
-        <p id="question-tree-delete-description">问答树、全部任务和关联附件将被永久删除，待发送消息也会清除。此操作无法撤销。</p>
+        <p id="question-tree-delete-description">{{ t('问答树、全部任务和关联附件将被永久删除，待发送消息也会清除。此操作无法撤销。') }}</p>
         <div class="question-tree-delete-dialog__confirmation">
-        <label for="question-tree-delete-input">请输入以下文字以确认</label>
+        <label for="question-tree-delete-input">{{ t('请输入以下文字以确认') }}</label>
         <div class="question-tree-delete-dialog__phrase">{{ expected }}</div>
-        <input id="question-tree-delete-input" ref="input" v-model="confirmation" type="text" autocomplete="off" :spellcheck="false" :disabled="busy" placeholder="在此输入确认文字" aria-describedby="question-tree-delete-error" />
+        <input id="question-tree-delete-input" ref="input" v-model="confirmation" type="text" autocomplete="off" :spellcheck="false" :disabled="busy" :placeholder="t('在此输入确认文字')" aria-describedby="question-tree-delete-error" />
         <p v-if="error" id="question-tree-delete-error" class="question-tree-delete-dialog__error" role="alert">{{ error }}</p>
         </div>
         <footer>
-          <button type="button" :disabled="busy" @click="close">保留问答树</button>
-          <button type="submit" class="question-tree-delete-dialog__submit" :disabled="!allowed">{{ busy ? '正在删除…' : '永久删除' }}</button>
+          <button type="button" :disabled="busy" @click="close">{{ t('保留问答树') }}</button>
+          <button type="submit" class="question-tree-delete-dialog__submit" :disabled="!allowed">{{ busy ? t('正在删除…') : t('永久删除') }}</button>
         </footer>
       </form>
     </dialog>
@@ -94,4 +96,5 @@ button:focus-visible { outline: 2px solid #879f8e; outline-offset: 3px; }
 @keyframes delete-dialog-enter { from { opacity: 0; transform: translateY(10px) scale(.98); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) { .question-tree-delete-dialog[open] { animation: none; } }
 @media (max-width: 420px) { .question-tree-delete-dialog__card { padding: 24px 20px; } }
+@media (max-width: 900px) { input { font-size: 16px; } }
 </style>

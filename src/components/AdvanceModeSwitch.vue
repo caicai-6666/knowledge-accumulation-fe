@@ -1,4 +1,5 @@
 <script setup>
+import { t } from '../i18n/index.js'
 import { useId } from 'vue'
 const props = defineProps({ modelValue: Boolean, disabled: Boolean, active: { type: Boolean, default: true } })
 const emit = defineEmits(['update:modelValue'])
@@ -9,16 +10,16 @@ function toggle(event) {
 </script>
 
 <template>
-  <div class="advance-mode" :class="{ 'is-disabled': disabled, 'is-paused': !active }" :title="disabled ? modelValue ? '新探索首条消息固定使用推进模式' : '仅主干末尾节点可开启推进模式' : modelValue ? '推进模式' : '探索模式'">
+  <div class="advance-mode" :class="{ 'is-disabled': disabled, 'is-paused': !active }" :title="disabled ? modelValue ? t('新探索首条消息固定使用推进模式') : t('仅主干末尾节点可开启推进模式') : modelValue ? t('推进模式') : t('探索模式')">
     <!-- From Uiverse.io by mamyapro123; adapted for a compact, accessible switch. -->
     <svg class="advance-mode__filters" aria-hidden="true"><defs>
       <filter :id="`${id}-sketchy`" x="-10%" y="-10%" width="120%" height="120%"><feTurbulence type="turbulence" baseFrequency="0.035 0.042" numOctaves="4" result="noise" seed="42" /><feDisplacementMap in="SourceGraphic" in2="noise" scale="4.5" xChannelSelector="R" yChannelSelector="G" /></filter>
       <filter :id="`${id}-sketchy-sm`" x="-18%" y="-18%" width="136%" height="136%"><feTurbulence type="turbulence" baseFrequency="0.06" numOctaves="3" result="noise" seed="7" /><feDisplacementMap in="SourceGraphic" in2="noise" scale="2.5" xChannelSelector="R" yChannelSelector="G" /></filter>
     </defs></svg>
     <label class="advance-mode__label">
-      <span class="advance-mode__text">{{ modelValue ? '推进模式' : '探索模式' }}</span>
+      <span class="advance-mode__text">{{ modelValue ? t('推进模式') : t('探索模式') }}</span>
       <span class="theme-switch" :style="{ '--sketchy': `url(#${id}-sketchy)`, '--sketchy-sm': `url(#${id}-sketchy-sm)` }">
-        <input class="theme-switch__checkbox" type="checkbox" role="switch" aria-label="推进模式" :checked="modelValue" :disabled="disabled" :aria-checked="modelValue" @change="toggle" />
+        <input class="theme-switch__checkbox" type="checkbox" role="switch" :aria-label="t('推进模式')" :checked="modelValue" :disabled="disabled" :aria-checked="modelValue" @change="toggle" />
         <span class="theme-switch__container" :class="{ 'is-exploring': !modelValue }" aria-hidden="true">
           <span class="theme-switch__clouds"></span>
           <span class="theme-switch__stars-container"><svg fill="none" viewBox="0 0 144 55"><path v-for="(point, index) in [[4,36],[35,23],[58,25],[85,25],[103,50],[137,4],[140,36]]" :key="index" :transform="`translate(${point[0]},${point[1]})`" fill="currentColor" d="M-4 0Q0 0 0-4Q0 0 4 0Q0 0 0 4Q0 0-4 0" /></svg></span>
@@ -34,9 +35,9 @@ function toggle(event) {
 
 <style scoped>
 /* From Uiverse.io by mamyapro123 */
-.advance-mode { flex: none; }
+.advance-mode { flex: none; -webkit-tap-highlight-color: transparent; -webkit-user-select: none; user-select: none; }
 .advance-mode__filters { position: absolute; width: 0; height: 0; overflow: hidden; }
-.advance-mode__label { display: flex; align-items: center; gap: 9px; cursor: pointer; }
+.advance-mode__label { display: flex; align-items: center; gap: 9px; cursor: pointer; touch-action: manipulation; }
 .advance-mode__text { color: #7e8c83; font-size: 10px; white-space: nowrap; }
 .advance-mode.is-disabled { opacity: .42; }
 .advance-mode.is-disabled .advance-mode__label, .advance-mode.is-disabled .theme-switch__container { cursor: not-allowed; }

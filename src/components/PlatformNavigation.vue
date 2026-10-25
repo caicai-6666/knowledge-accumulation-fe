@@ -1,4 +1,5 @@
 <script setup>
+import { t } from '../i18n/index.js'
 import { computed } from 'vue'
 const props = defineProps({ platforms: { type: Array, required: true }, modelValue: { type: String, default: '' }, active: Boolean })
 const emit = defineEmits(['update:modelValue'])
@@ -7,7 +8,7 @@ const accent = computed(() => props.platforms[selectedIndex.value]?.accent || '#
 </script>
 
 <template>
-  <nav class="platform-navigation" :class="{ 'is-active': active, 'has-selection': selectedIndex >= 0 }" :style="{ '--platform-accent': accent, '--platform-index': Math.max(0, selectedIndex) }" aria-label="选择管理平台">
+  <nav class="platform-navigation" :class="{ 'is-active': active, 'has-selection': selectedIndex >= 0 }" :style="{ '--platform-accent': accent, '--platform-index': Math.max(0, selectedIndex) }" :aria-label="t('选择管理平台')">
     <span class="platform-navigation__slider" aria-hidden="true"></span>
     <button v-for="(platform, index) in platforms" :key="platform.code" type="button" class="platform-navigation__item" :class="{ 'is-selected': modelValue === platform.code }" :style="{ '--item-accent': platform.accent, '--enter-delay': `${220 + index * 120}ms` }" :aria-pressed="modelValue === platform.code" :title="platform.name" @click="emit('update:modelValue', modelValue === platform.code ? '' : platform.code)">
       <span class="platform-navigation__icon" aria-hidden="true">

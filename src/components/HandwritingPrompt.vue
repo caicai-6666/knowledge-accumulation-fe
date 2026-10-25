@@ -1,5 +1,7 @@
 <script setup>
-import { onActivated, onBeforeUnmount, onDeactivated, onMounted, ref, useId, watch } from 'vue'
+import { englishHandwritingCandidates } from '../models/englishHandwriting.js'
+import { locale, t } from '../i18n/index.js'
+import { computed, onActivated, onBeforeUnmount, onDeactivated, onMounted, ref, useId, watch } from 'vue'
 
 // 笔画与视觉节奏复用 contract-service-fe；文案和生命周期适配统一问答入口。
 const props = defineProps({ active: { type: Boolean, default: true } })
@@ -403,23 +405,27 @@ function getCurrentPeriod() {
   return 'evening'
 }
 
+const previousTemplates = { zh: '', en: '' }
 function selectTemplate() {
-  let previousKey = ''
+  const language = locale.value
+  const storageKey = language === 'en' ? 'knowledge-handwriting-template-en' : 'knowledge-handwriting-template'
+  let previousKey = previousTemplates[language]
 
   try {
-    previousKey = window.sessionStorage.getItem('knowledge-handwriting-template') ?? ''
+    previousKey = window.sessionStorage.getItem(storageKey) || previousKey
   } catch {
     // 存储受限不影响手写提示展示。
   }
 
   const currentPeriod = getCurrentPeriod()
-  const candidates = templates.filter(
+  const candidates = language === 'en' ? englishHandwritingCandidates({ period: currentPeriod, previousKey, mobile: Boolean(window.matchMedia?.('(max-width: 900px)')?.matches) }) : templates.filter(
     (template) => template.key !== previousKey && (!template.period || template.period === currentPeriod),
   )
   const selected = candidates[Math.floor(Math.random() * candidates.length)] ?? templates[0]
+  previousTemplates[language] = selected.key
 
   try {
-    window.sessionStorage.setItem('knowledge-handwriting-template', selected.key)
+    window.sessionStorage.setItem(storageKey, selected.key)
   } catch {
     // 仅用会话存储避免连续重复，不涉及认证或问答数据。
   }
@@ -428,6 +434,7 @@ function selectTemplate() {
 }
 
 const activeTemplate = ref(selectTemplate())
+const displayedTemplate = computed(() => activeTemplate.value)
 const promptVisible = ref(true)
 const renderCycle = ref(0)
 let rotationTimer
@@ -438,7 +445,7 @@ function getDrawingDuration(template) {
 
 function scheduleNextTemplate() {
   if (!running.value) return
-  const drawingDuration = getDrawingDuration(activeTemplate.value)
+  const drawingDuration = getDrawingDuration(displayedTemplate.value)
 
   rotationTimer = window.setTimeout(() => {
     promptVisible.value = false
@@ -470,6 +477,7 @@ function syncMotion(event) {
 }
 function syncVisibility() { if (document.hidden) pause(); else resume() }
 watch(() => props.active, value => { if (value) resume(); else pause() })
+watch(locale, () => { pause(); activeTemplate.value = selectTemplate(); renderCycle.value += 1; promptVisible.value = true; resume() })
 onMounted(() => {
   motionQuery = window.matchMedia('(prefers-reduced-motion: reduce)')
   syncMotion(motionQuery)
@@ -491,19 +499,19 @@ onBeforeUnmount(() => {
     :class="{ 'handwriting-prompt-shell--leaving': !promptVisible, 'is-paused': !running }"
   >
     <svg
-      :key="`${activeTemplate.key}-${renderCycle}`"
+      :key="`${displayedTemplate.key}-${renderCycle}`"
       class="handwriting-prompt"
-      :viewBox="activeTemplate.viewBox"
-      :style="{ '--prompt-width': activeTemplate.width }"
+      :viewBox="displayedTemplate.viewBox"
+      :style="{ '--prompt-width': displayedTemplate.width, '--prompt-stroke-width': displayedTemplate.strokeWidth, '--prompt-shadow-width': displayedTemplate.shadowWidth }"
       role="img"
-      :aria-label="activeTemplate.label"
+      :aria-label="t(displayedTemplate.label)"
     >
       <defs>
         <linearGradient
           :id="gradientId"
           x1="45"
           y1="45"
-          :x2="activeTemplate.gradientEnd ?? 495"
+          :x2="displayedTemplate.gradientEnd ?? 495"
           y2="205"
           gradientUnits="userSpaceOnUse"
         >
@@ -516,9 +524,10 @@ onBeforeUnmount(() => {
 
       <g class="handwriting-prompt__shadow" transform="translate(3 4)" aria-hidden="true">
         <path
-          v-for="stroke in activeTemplate.strokes"
-          :key="`shadow-${stroke.d}`"
+          v-for="(stroke, index) in displayedTemplate.strokes"
+          :key="`shadow-${index}`"
           :d="stroke.d"
+          :transform="stroke.transform"
           pathLength="1"
           :stroke="`url(#${gradientId})`"
           :style="{
@@ -530,9 +539,10 @@ onBeforeUnmount(() => {
 
       <g class="handwriting-prompt__ink" aria-hidden="true">
         <path
-          v-for="stroke in activeTemplate.strokes"
-          :key="stroke.d"
+          v-for="(stroke, index) in displayedTemplate.strokes"
+          :key="index"
           :d="stroke.d"
+          :transform="stroke.transform"
           pathLength="1"
           :stroke="`url(#${gradientId})`"
           :style="{
@@ -544,11 +554,11 @@ onBeforeUnmount(() => {
     </svg>
 
     <p
-      :key="`hint-${activeTemplate.key}-${renderCycle}`"
+      :key="`hint-${displayedTemplate.key}-${renderCycle}`"
       class="handwriting-prompt__hint"
-      :style="{ '--hint-delay': `${getDrawingDuration(activeTemplate) / 1000 + 0.1}s` }"
+      :style="{ '--hint-delay': `${getDrawingDuration(displayedTemplate) / 1000 + 0.1}s` }"
     >
-      {{ activeTemplate.hint }}
+      {{ t(displayedTemplate.hint) }}
     </p>
   </div>
 </template>
@@ -591,11 +601,11 @@ onBeforeUnmount(() => {
 }
 
 .handwriting-prompt__shadow path {
-  stroke-width: 17px;
+  stroke-width: var(--prompt-shadow-width, 17px);
 }
 
 .handwriting-prompt__ink path {
-  stroke-width: 14px;
+  stroke-width: var(--prompt-stroke-width, 14px);
 }
 
 .handwriting-prompt__hint {

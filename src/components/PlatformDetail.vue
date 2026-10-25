@@ -1,4 +1,5 @@
 <script setup>
+import { t } from '../i18n/index.js'
 import PlatformManager from './PlatformManager.vue'
 import PlatformDescription from './PlatformDescription.vue'
 
@@ -13,17 +14,17 @@ defineProps({ platform: { type: Object, required: true } })
         <PlatformDescription class="platform-detail__description" :description="platform.description" />
       </div>
       <footer class="platform-detail__footer">
-        <a v-if="platform.entryUrl" :href="platform.entryUrl" class="platform-detail__entry">进入平台<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6" /></svg></a>
-        <button v-else type="button" class="platform-detail__entry" disabled title="平台入口暂未配置">进入平台<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6" /></svg></button>
+        <a v-if="platform.entryUrl" :href="platform.entryUrl" class="platform-detail__entry">{{ t('进入平台') }}<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6" /></svg></a>
+        <button v-else type="button" class="platform-detail__entry" disabled :title="t('平台入口暂未配置')">{{ t('进入平台') }}<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6" /></svg></button>
       </footer>
     </div>
 
     <section class="platform-detail__section" aria-labelledby="platform-managers-title">
-      <h3 id="platform-managers-title">平台管理人</h3>
+      <h3 id="platform-managers-title">{{ t('平台管理人') }}</h3>
       <ul v-if="platform.admins.length" class="platform-detail__managers">
         <PlatformManager v-for="(manager, index) in platform.admins" :key="index" :manager="manager" :index="index" />
       </ul>
-      <p v-else class="platform-detail__empty">暂无管理人</p>
+      <p v-else class="platform-detail__empty">{{ t('暂无管理人') }}</p>
     </section>
   </div>
 </template>

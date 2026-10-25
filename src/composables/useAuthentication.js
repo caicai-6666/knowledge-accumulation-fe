@@ -1,3 +1,4 @@
+import { localizedRef, uiText } from '../i18n/index.js'
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { ACCESS_TOKEN_KEY, KNOWLEDGE_API_BASE_PATH, createAuthentication } from '../services/authentication.js'
 import { requestDingTalkCode } from '../services/dingtalk.js'
@@ -5,7 +6,7 @@ import { requestDingTalkCode } from '../services/dingtalk.js'
 export function useAuthentication() {
   const state = ref('loading')
   const user = ref(null)
-  const error = ref('')
+  const error = localizedRef('')
   let pending
   let controller
   let authentication
@@ -29,7 +30,7 @@ export function useAuthentication() {
         if (!signal.aborted) { user.value = identity; state.value = 'ready' }
       } catch (failure) {
         if (!signal.aborted) {
-          error.value = failure.name === 'SecurityError' ? '请允许此站点使用本地存储后重试' : failure.message || '登录失败，请重试'
+          error.value = failure.name === 'SecurityError' ? uiText('请允许此站点使用本地存储后重试') : failure.message ? failure : uiText('登录失败，请重试')
           state.value = 'error'
         }
       } finally {

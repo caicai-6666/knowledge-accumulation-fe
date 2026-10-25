@@ -1,10 +1,11 @@
+import { localizedRef, uiText } from '../i18n/index.js'
 import { getCurrentInstance, onActivated, onDeactivated, onScopeDispose, ref, toValue, watch } from 'vue'
 import { fetchPlatforms } from '../services/platforms.js'
 
 export function usePlatforms(active, user, { loadPlatforms = fetchPlatforms, onAuthenticationExpired = () => {} } = {}) {
   const platforms = ref([])
   const status = ref('idle')
-  const error = ref('')
+  const error = localizedRef('')
   let controller
   let needsRefresh = true
 
@@ -23,7 +24,7 @@ export function usePlatforms(active, user, { loadPlatforms = fetchPlatforms, onA
     } catch (failure) {
       if (signal.aborted) return
       platforms.value = []
-      error.value = failure.message || '平台信息暂时无法加载，请重试'
+      error.value = failure.message ? failure : uiText('平台信息暂时无法加载，请重试')
       status.value = 'error'
       needsRefresh = true
       if (failure.status === 401) onAuthenticationExpired()

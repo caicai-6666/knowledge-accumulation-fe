@@ -1,20 +1,27 @@
+import { t, uiText } from '../i18n/index.js'
 import { ExplorationError, isFileId, isTreeId } from '../services/explorationApi.js'
 
 export const TERMINAL_TURNS = new Set(['completed', 'cancelled', 'superseded', 'failed', 'expired'])
 const statuses = { pending_activation: 'generating', processing: 'generating', completed: 'complete', cancelled: 'cancelled', superseded: 'superseded', failed: 'failed', expired: 'failed' }
 const validText = value => typeof value === 'string'
-function invalid() { throw new ExplorationError('问答树或任务返回的数据不完整，请重新加载') }
+function invalid() { throw new ExplorationError(uiText('问答树或任务返回的数据不完整，请重新加载')) }
 export function makeAttachment(treeId, reference) {
   if (!reference || !isFileId(reference.file_id) || !['images', 'audio', 'video'].includes(reference.type)) invalid()
   const extension = { images: 'pdf', audio: 'mp3', video: 'mp4' }[reference.type]
   return { id: reference.file_id, fileId: reference.file_id, treeId, type: reference.type, name: `${reference.file_id}.${extension}`, file: null, url: '' }
 }
+// 后端只提供 main/branch 和真实父链；branchId 仅用于前端分列。
+// 分支的首个后继沿原列延伸，已有后继时再次探索必须使用独立列。
+function displayBranchId(id, pathType, parent, hasContinuation) {
+  return pathType === 'main' ? 'main' : parent && parent.branchId !== 'main' && !hasContinuation ? parent.branchId : id
+}
 export function makeLiveNode(treeId, turnId, input, source) {
   const parent = source.nodes.find(node => node.id === input.selectedNodeId)
-  const branchId = input.mode === 'main' ? 'main' : parent?.branchId !== 'main' ? parent?.branchId || turnId : turnId
+  const hasContinuation = parent && source.nodes.some(node => node.parentId === parent.id && node.branchId === parent.branchId)
+  const branchId = displayBranchId(turnId, input.mode, parent, hasContinuation)
   return {
     id: turnId, turnId, treeId, kind: 'task', parentId: input.selectedNodeId || null, pathType: input.mode, branchId,
-    question: input.question, answer: '', status: 'generating', turnStatus: 'pending_activation', canInterrupt: true,
+    question: input.question, answer: '', revealAnswer: false, status: 'generating', turnStatus: 'pending_activation', canInterrupt: true,
     createdAt: new Date().toISOString(), startedAt: null, elapsedMs: null, processingDurationMs: null,
     publicMessages: [], process: [], eventLog: [], lastSequence: '0', attachments: input.localAttachments || [],
     reasoningEffort: input.thinkingEffort, advanceMode: input.mode === 'main', registered: false, error: '',
@@ -39,31 +46,33 @@ function applyStatus(node, data) {
   if (data.superseded_by_turn_id) node.supersededBy = data.superseded_by_turn_id
   if (TERMINAL_TURNS.has(data.status)) settleProcess(node, data.status === 'completed' ? 'complete' : 'cancelled')
 }
-function applyMessage(node, event, data) {
+function applyMessage(node, event, data, { reveal = false } = {}) {
   if (!isTreeId(data.message_id) || !['intermediate', 'final'].includes(data.message_kind)) invalid()
   const text = event === 'message.delta' ? data.delta : data.text
   if (!validText(text)) invalid()
   let message = node.publicMessages.find(message => message.id === data.message_id)
+  const newMessage = !message
   if (!message) { message = { id: data.message_id, kind: data.message_kind, text: '', status: 'streaming' }; node.publicMessages.push(message) }
   if (message.kind !== data.message_kind) invalid()
   if (event === 'message.delta') message.text += text
   else { message.text = text; message.status = data.status || 'completed' }
   if (message.kind === 'intermediate') {
     let step = node.process.find(step => step.id === message.id)
-    if (!step) { settleProcess(node); step = { id: message.id, kind: 'message', label: '过程输出', content: '', status: 'generating' }; node.process.push(step) }
+    if (!step) { settleProcess(node); step = { id: message.id, kind: 'message', label: t('过程输出'), content: '', status: 'generating', reveal }; node.process.push(step) }
     step.content = message.text
     step.status = event === 'message.delta' ? 'generating' : message.status === 'interrupted' ? 'cancelled' : 'complete'
   } else {
+    if (newMessage && reveal && !node.answer) node.revealAnswer = true
     settleProcess(node)
     node.answer = node.publicMessages.filter(message => message.kind === 'final').map(message => message.text).join('\n\n')
   }
 }
 function applyProgress(node, data, id) {
-  if (!['thinking', 'online-search', 'external-expert'].includes(data.type) || !validText(data.message) || !data.message.trim()) invalid()
+  if (!['thinking', 'online-search', 'external-expert', 'local-search'].includes(data.type) || !validText(data.message) || !data.message.trim()) invalid()
   settleProcess(node)
   node.process.push({ id, kind: 'progress', type: data.type, label: data.message, content: '', status: node.status === 'generating' ? 'generating' : 'complete' })
 }
-export function applyExplorationEvent(node, frame, { history = false } = {}) {
+export function applyExplorationEvent(node, frame, { history = false, reveal = true } = {}) {
   const { id, event, data } = frame
   if (!data || data.turn_id !== node.turnId) invalid()
   if (id) {
@@ -72,7 +81,7 @@ export function applyExplorationEvent(node, frame, { history = false } = {}) {
   }
   if (event === 'turn.status') applyStatus(node, data)
   else if (event === 'task.progress') applyProgress(node, data, `progress-${id || node.process.length}`)
-  else if (event === 'message.delta' || event === 'message.completed') applyMessage(node, event, data)
+  else if (event === 'message.delta' || event === 'message.completed') applyMessage(node, event, data, { reveal: !history && reveal })
   else if (event === 'error') {
     if (!validText(data.message)) invalid()
     if (!id && !history) throw new ExplorationError(data.message, data.code === 'replay_required' ? 409 : 404)
@@ -105,19 +114,16 @@ export function normalizeExplorationTree(payload) {
   for (const item of raw) {
     const parent = item.parent_id ? byId.get(item.parent_id) : null
     if (item.parent_id && !parent) invalid()
-    let branchId = 'main'
-    if (item.path_type === 'branch') {
-      if (parent?.branchId !== 'main' && parent && !branchContinuation.has(parent.id)) { branchId = parent.branchId; branchContinuation.add(parent.id) }
-      else branchId = item.id
-    }
+    const branchId = displayBranchId(item.id, item.path_type, parent, branchContinuation.has(parent?.id))
+    if (parent && branchId === parent.branchId && item.path_type === 'branch') branchContinuation.add(parent.id)
     const node = {
       id: item.id, turnId: item.id, treeId: payload.id, kind: item.kind, parentId: item.parent_id, branchId, pathType: item.path_type,
-      question: item.kind === 'task' ? item.content?.question : '上下文摘要', answer: item.kind === 'task' ? item.content?.answer : item.content?.text,
+      question: item.kind === 'task' ? item.content?.question : t('上下文摘要'), answer: item.kind === 'task' ? item.content?.answer : item.content?.text,
       advanceMode: item.path_type === 'main', status: item.status, turnStatus: item.status === 'complete' ? 'completed' : item.status === 'generating' ? 'processing' : item.status,
       createdAt: item.created_at, startedAt: item.status === 'generating' ? Date.parse(item.created_at) : null,
       processingDurationMs: item.processing_duration_ms, canInterrupt: item.can_interrupt, registered: true,
       attachments: (item.content?.attachments || []).map(reference => makeAttachment(payload.id, reference)),
-      publicMessages: [], process: [], eventLog: [], lastSequence: '0', error: '', supersededBy: item.superseded_by_node_id,
+      publicMessages: [], process: [], eventLog: [], lastSequence: '0', revealAnswer: false, error: '', supersededBy: item.superseded_by_node_id,
     }
     if (!validText(node.question) || !validText(node.answer)) invalid()
     const originalAnswer = node.answer
