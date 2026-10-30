@@ -1,20 +1,34 @@
+import { throwIfAborted } from '../services/abortSignal.js'
 import { t, localizedRef, uiText } from '../i18n/index.js'
 import { computed, onScopeDispose, ref, watch } from 'vue'
 import { finalMessageSignature, readTreeStatusCache, writeTreeStatusCache } from '../services/treeStatusCache.js'
+import { createTreePositionCache } from '../services/treePositionCache.js'
+import { useConversationCache } from './useConversationCache.js'
 import { useReasoningPreference } from './useReasoningPreference.js'
 import { getContextPath } from '../models/questionTree.js'
 import { applyExplorationEvent, applyTurnSnapshot, makeLiveNode, normalizeExplorationTree, TERMINAL_TURNS } from '../models/explorationTree.js'
 import { createExplorationApi, ExplorationError, isTreeId, validateTreeName, validateTurnInput } from '../services/explorationApi.js'
 import { convertImageFileToPdf, isSupportedImage } from '../services/imagePdf.js'
 
-export function useExplorationTrees({ api = createExplorationApi(), active = () => true, onAuthenticationExpired = () => {}, convertImage = convertImageFileToPdf, userId = '', statusStorage } = {}) {
+export function useExplorationTrees({ api = createExplorationApi(), active = () => true, onAuthenticationExpired = () => {}, convertImage = convertImageFileToPdf, userId = '', statusStorage, conversationStorage, positionStorage } = {}) {
   const trees = ref([]), treeId = ref('__new-exploration__'), selectedId = ref(null), branchAnchorId = ref(null)
   const exploration = { id: '__new-exploration__', get title() { return t('开始新探索') }, nodes: [], mainLeafId: null, loaded: true }
   const isNewExploration = computed(() => treeId.value === exploration.id)
   const tree = computed(() => trees.value.find(item => item.id === treeId.value) || exploration)
   const path = computed(() => getContextPath(tree.value, selectedId.value))
   const context = computed(() => path.value.filter(node => node.kind === 'task'))
-  const selectedNode = computed(() => context.value.at(-1))
+  const selectedNode = computed(() => context.value[context.value.length - 1])
+  const loading = ref(false), listLoading = ref(false), error = localizedRef('')
+  const positions = createTreePositionCache(userId, positionStorage)
+  const restorableTask = node => node?.kind === 'task' && node.status !== 'superseded' && !node.supersededBy
+  watch([treeId, selectedId, loading, () => restorableTask(tree.value.nodes.find(node => node.id === selectedId.value))], () => {
+    if (!loading.value && restorableTask(tree.value.nodes.find(node => node.id === selectedId.value))) positions.remember(treeId.value, selectedId.value)
+  }, { flush: 'sync' })
+  function restoredNodeId(owner) {
+    return owner.nodes.find(node => node.id === positions.get(owner.id) && restorableTask(node))?.id
+      || owner.nodes.find(node => node.id === owner.mainLeafId && restorableTask(node))?.id
+      || owner.nodes.filter(node => node.branchId === 'main' && restorableTask(node)).pop()?.id || null
+  }
   const drafts = ref({}), attachmentDrafts = ref({}), queuedByTree = ref({})
   const draftKey = computed(() => `${treeId.value}:${selectedId.value || 'root'}`)
   const draft = computed({ get: () => drafts.value[draftKey.value] || '', set: value => { drafts.value[draftKey.value] = value } })
@@ -25,7 +39,6 @@ export function useExplorationTrees({ api = createExplorationApi(), active = () 
   // 空探索的首问固定建立主干，界面与实际提交模式保持一致。
   const advanceMode = computed({ get: () => Boolean(tree.value.loaded && !tree.value.nodes.length) || canAdvance.value && advanceEnabled.value, set: value => { advanceEnabled.value = canAdvance.value && Boolean(value) } })
   watch([treeId, selectedId], () => { advanceEnabled.value = false }, { flush: 'sync' })
-  const loading = ref(false), listLoading = ref(false), error = localizedRef('')
   const submittingTrees = ref(new Set()), cancellingTrees = ref(new Set()), uncertainTrees = ref(new Set())
   const submitting = computed(() => submittingTrees.value.has(treeId.value))
   const cancelling = computed(() => cancellingTrees.value.has(treeId.value))
@@ -54,10 +67,12 @@ export function useExplorationTrees({ api = createExplorationApi(), active = () 
   const treeVersions = new Map(), removedTreeIds = new Set()
   let catalogRevision = 0
   let disposed = false, selectionVersion = 0, clock = null
+  const searchCache = useConversationCache({ userId, active: catalogVisible, loadTree: (id, options) => api.openTree(id, options), onAuthenticationExpired, storage: conversationStorage })
   const controller = () => { const value = new AbortController(); controllers.add(value); return value }
-  function report(cause) {
+  function report(cause, { connection = false } = {}) {
     if (disposed || cause?.name === 'AbortError') return
-    if (cause?.status === 401) onAuthenticationExpired()
+    if (cause?.status === 401) { error.value = ''; connectionError.value = ''; onAuthenticationExpired(); return }
+    if (connection) { connectionError.value = cause?.message ? cause : uiText('连接已中断，请重新连接'); return }
     error.value = cause?.message ? cause : uiText('问答服务暂不可用，请重试')
   }
   function findNode(owner, id) { return trees.value.find(item => item.id === owner)?.nodes.find(node => node.id === id) }
@@ -122,7 +137,14 @@ export function useExplorationTrees({ api = createExplorationApi(), active = () 
       }
     }
   }
-  async function loadTrees({ background = false } = {}) {
+  let catalogOperation = null
+  function loadTrees(options) {
+    // 手动下拉可复用正在进行的目录查询，等待其实际结果，避免与轮询并发。
+    if (catalogOperation) return catalogOperation
+    catalogOperation = fetchTreeCatalog(options).finally(() => { catalogOperation = null })
+    return catalogOperation
+  }
+  async function fetchTreeCatalog({ background = false } = {}) {
     if (catalogRequest || background && catalogAuthBlocked) return false
     if (submittingTrees.value.size || treeMutation.value || disposed || background && !catalogVisible()) { scheduleCatalogPoll(); return false }
     if (!background) { listLoading.value = true; error.value = ''; catalogAuthBlocked = false }
@@ -141,15 +163,18 @@ export function useExplorationTrees({ api = createExplorationApi(), active = () 
         }
         const owner = previous.get(item.id) || { id: item.id, nodes: [], mainLeafId: null, loaded: false }
         owner.title = item.name
+        owner.updatedAt = item.updated_at
         return owner
       })
       const ids = new Set(list.map(item => item.id))
+      positions.retain(ids)
       for (const id of runningTreeIds.value) if (!ids.has(id)) runningTreeIds.value.delete(id)
       for (const id of unreadTreeIds.value) if (!ids.has(id)) { unreadTreeIds.value.delete(id); unreadNodesByTree.delete(id) }
       for (const id of observedFinals.keys()) if (!ids.has(id)) observedFinals.delete(id)
       for (const id of readFinalsByTree.keys()) if (!ids.has(id)) readFinalsByTree.delete(id)
       if (!isNewExploration.value && !ids.has(treeId.value)) newTree()
       if (!background) listLoading.value = false
+      void searchCache.syncCatalog(list, { retry: !background })
       await reconcileCatalog(list, request.signal)
       scheduleStatusSave()
       return true
@@ -174,6 +199,7 @@ export function useExplorationTrees({ api = createExplorationApi(), active = () 
       const normalized = normalizeExplorationTree(await api.openTree(id, { signal: request.signal }))
       if (disposed || removedTreeIds.has(id)) return null
       if (version !== (treeVersions.get(id) || 0)) return trees.value.find(item => item.id === id) || null
+      searchCache.remember(normalized)
       uncertainTrees.value.delete(id)
       const old = trees.value.find(item => item.id === id)
       // SSE 可能比 open 的数据库快照更新；拓扑使用服务端结果，保留更新的公开输出。
@@ -197,7 +223,7 @@ export function useExplorationTrees({ api = createExplorationApi(), active = () 
       }
       for (const node of old?.nodes || []) if (node.status === 'generating' && !node.registered && !normalized.nodes.some(item => item.id === node.id)) normalized.nodes.push(node)
       const index = trees.value.findIndex(item => item.id === id)
-      if (treeId.value === id && selectedId.value && !normalized.nodes.some(node => node.id === selectedId.value)) selectedId.value = normalized.mainLeafId
+      if (treeId.value === id && selectedId.value && !normalized.nodes.some(node => node.id === selectedId.value)) selectedId.value = restoredNodeId(normalized)
       if (index < 0) trees.value.unshift(normalized)
       else trees.value[index] = normalized
       return normalized
@@ -209,12 +235,14 @@ export function useExplorationTrees({ api = createExplorationApi(), active = () 
   async function selectTree(id) {
     if (!trees.value.some(item => item.id === id)) return
     const version = ++selectionVersion
-    treeId.value = id; selectedId.value = null; loading.value = true; error.value = ''
+    loading.value = true; treeId.value = id; selectedId.value = null; error.value = ''
     try {
       const loaded = await refreshTree(id)
       if (disposed || !loaded || version !== selectionVersion) return
-      selectedId.value = loaded.mainLeafId && loaded.nodes.find(node => node.id === loaded.mainLeafId)?.kind === 'task' ? loaded.mainLeafId : loaded.nodes.findLast(node => node.kind === 'task' && node.branchId === 'main')?.id || null
+      selectedId.value = restoredNodeId(loaded)
+      if (!selectedId.value) positions.remove(id)
       for (const node of loaded.nodes) if (node.kind === 'task' && node.status === 'generating') void connect(id, node.id, true)
+      return loaded
     } catch (cause) { report(cause) }
     finally { if (version === selectionVersion) loading.value = false }
   }
@@ -252,6 +280,7 @@ export function useExplorationTrees({ api = createExplorationApi(), active = () 
   watch([() => active(), treeId, selectedId, loading], acknowledgeVisibleTree)
   function catalogVisibilityChanged() {
     acknowledgeVisibleTree()
+    searchCache.visibilityChanged()
     clearTimeout(catalogTimer)
     if (!catalogVisible()) { saveStatusCache(); catalogRequest?.abort() }
     else void loadTrees({ background: true })
@@ -265,7 +294,7 @@ export function useExplorationTrees({ api = createExplorationApi(), active = () 
     let ended = false
     try {
       for (let attempt = 0; attempt < 4; attempt++) {
-        request.signal.throwIfAborted()
+        throwIfAborted(request.signal)
         let node = findNode(owner, id)
         if (!node) return
         try {
@@ -307,9 +336,10 @@ export function useExplorationTrees({ api = createExplorationApi(), active = () 
       if (!ended) throw new ExplorationError(uiText('连接已中断，任务可能仍在执行，请重新连接'))
     } catch (cause) {
       if (!request.signal.aborted && !disposed && !removedTreeIds.has(owner) && !(treeMutation.value?.id === owner && treeMutation.value.type === 'delete')) {
-        connectionError.value = cause.message ? cause : uiText('连接已中断，请重新连接')
-        report(cause)
-        if ([404, 410].includes(cause.status)) { try { await refreshTree(owner) } catch (failure) { report(failure) } }
+        // 断线状态留在连接流程内，不作为顶部业务错误提示；任务失效仍明确展示。
+        const unavailable = [404, 410].includes(cause.status)
+        report(cause, { connection: !unavailable })
+        if (unavailable) { try { await refreshTree(owner) } catch (failure) { report(failure) } }
       }
     } finally {
       if (streams.get(id) === request) streams.delete(id)
@@ -478,7 +508,7 @@ export function useExplorationTrees({ api = createExplorationApi(), active = () 
   }
   async function mutateTree(id, type, operation) {
     if (disposed || treeMutation.value || submittingTrees.value.size || cancellingTrees.value.size || loading.value || listLoading.value || convertingAttachments.value) throw new ExplorationError(uiText('当前操作尚未完成，请稍后重试'))
-    if (!trees.value.some(item => item.id === id) || removedTreeIds.has(id)) throw new ExplorationError(uiText('问答树不存在'), 404)
+    if ((!trees.value.some(item => item.id === id) && !(type === 'delete' && pausedQueues.has(id))) || removedTreeIds.has(id)) throw new ExplorationError(uiText('问答树不存在'), 404)
     treeMutation.value = { id, type }
     catalogRevision++
     treeVersions.set(id, (treeVersions.get(id) || 0) + 1)
@@ -512,6 +542,8 @@ export function useExplorationTrees({ api = createExplorationApi(), active = () 
       await api.deleteTree(id, { signal })
       if (disposed) return false
       removedTreeIds.add(id)
+      positions.remove(id)
+      searchCache.remove(id)
       const source = trees.value.find(item => item.id === id)
       const attachmentsToRelease = [...(source?.nodes.flatMap(node => node.attachments) || []), ...(queuedByTree.value[id] || []).flatMap(item => item.attachments)]
       for (const node of source?.nodes || []) streams.get(node.id)?.abort()
@@ -530,9 +562,11 @@ export function useExplorationTrees({ api = createExplorationApi(), active = () 
   }
   async function revalidate() {
     if (!active() || disposed) return
-    if (!await loadTrees()) return
+    // 身份已重新确认，允许此前因 401 暂停的目录查询在后台恢复。
+    catalogAuthBlocked = false
+    if (!await loadTrees({ background: true })) return
     if (!isNewExploration.value && tree.value.loaded) {
-      try { await refreshTree(treeId.value) } catch (cause) { report(cause); return }
+      try { await refreshTree(treeId.value) } catch (cause) { if (cause.status === 401) report(cause); return }
     }
     reconnect()
   }
@@ -546,5 +580,5 @@ export function useExplorationTrees({ api = createExplorationApi(), active = () 
   }
   watch(active, resume, { immediate: true, flush: 'sync' })
   onScopeDispose(() => { globalThis.removeEventListener?.('pagehide', saveStatusCache); globalThis.document?.removeEventListener?.('visibilitychange', catalogVisibilityChanged); disposed = true; saveStatusCache(); clearTimeout(catalogTimer); catalogRequest?.abort(); stopStreams(); controllers.forEach(request => request.abort()); controllers.clear(); urls.forEach(url => URL.revokeObjectURL(url)); resourceUrls.clear() })
-  return { runningTreeIds, unreadTreeIds, treeMutation, renameTree, deleteTree, revalidate, submissionUncertain, trees, tree, isNewExploration, selectedId, selectedNode, context, contextPath: path, branchAnchorId, draft, pending, reasoningEffort, canAdvance, advanceMode, queuedQuestions, sendQueued, removeQueued, attachments, convertingAttachments, attachmentError, addAttachments, removeAttachment, selectTree, selectNode, newTree, sendQuestion, stopAnswer, loading, listLoading, error, submitting, cancelling, connectionError, reconnect, loadTrees, canSteer, previewResource }
+  return { searchRecords: searchCache.records, searchStatus: searchCache.status, retrySearchCache: searchCache.retry, runningTreeIds, unreadTreeIds, treeMutation, renameTree, deleteTree, revalidate, submissionUncertain, trees, tree, isNewExploration, selectedId, selectedNode, context, contextPath: path, branchAnchorId, draft, pending, reasoningEffort, canAdvance, advanceMode, queuedQuestions, sendQueued, removeQueued, attachments, convertingAttachments, attachmentError, addAttachments, removeAttachment, selectTree, selectNode, newTree, sendQuestion, stopAnswer, loading, listLoading, error, submitting, cancelling, connectionError, reconnect, loadTrees, canSteer, previewResource }
 }

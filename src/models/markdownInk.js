@@ -1,5 +1,6 @@
 const DURATION = 640
-const segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
+// 部分钉钉 WebView 没有字素分段能力，保留完整正文并跳过逐字晕染。
+const segmenter = typeof Intl !== 'undefined' && typeof Intl.Segmenter === 'function' ? new Intl.Segmenter(undefined, { granularity: 'grapheme' }) : null
 function textUnits(value) {
   return (value.match(/&(?:#[0-9]+|#x[0-9a-f]+|[a-z][a-z0-9]+);|[^&]+|&/giu) || []).flatMap(part => part.startsWith('&') && part.endsWith(';') ? [part] : Array.from(segmenter.segment(part), item => item.segment))
 }
@@ -17,6 +18,7 @@ export function createMarkdownInk() {
   let previous = []
   let ranges = []
   function update(blocks, { animate = false, now = performance.now() } = {}) {
+    if (!segmenter) return blocks
     const parts = splitBlocks(blocks)
     const units = parts.flatMap(block => block.flatMap(part => part.units))
     let prefix = 0

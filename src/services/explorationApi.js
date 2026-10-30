@@ -1,4 +1,6 @@
+import { throwIfAborted } from './abortSignal.js'
 import { uiText, LocalizedError } from '../i18n/index.js'
+import { parseTreeUpdatedAt } from '../models/treeDateGroups.js'
 import { KNOWLEDGE_API_BASE_PATH, readAccessToken } from './authentication.js'
 
 export class ExplorationError extends LocalizedError {
@@ -37,7 +39,7 @@ export function createExplorationApi({ storage = window.localStorage, fetch: fet
   const treePath = id => `${base}/exploration/trees${id ? `/${requireId(id)}` : ''}`
   const turnPath = (treeId, turnId = '', suffix = '') => `${treePath(treeId)}/turns${turnId ? `/${requireId(turnId)}${suffix}` : ''}`
   async function request(path, { signal, timeout = 75000, responseType = 'json', ...init } = {}) {
-    signal?.throwIfAborted()
+    throwIfAborted(signal)
     const token = readAccessToken(storage)
     if (!token) throw new ExplorationError(uiText('登录状态已失效，请重新登录'), 401)
     const controller = new AbortController()
@@ -53,7 +55,7 @@ export function createExplorationApi({ storage = window.localStorage, fetch: fet
       const mime = response.headers.get('content-type')?.split(';')[0].trim().toLowerCase()
       if (!response.ok) {
         const payload = mime === 'application/json' ? await response.json().catch(() => null) : null
-        if (response.status === 401 && readAccessToken(storage) !== token) throw new ExplorationError(uiText('登录状态已更新，请重试'))
+        if (response.status === 401 && readAccessToken(storage) !== token) throw new ExplorationError(uiText('请求状态已更新，请重试'))
         const detail = payload?.detail === 'Not Found' ? uiText('问答接口不可用，请确认后端版本与请求映射') : typeof payload?.detail === 'string' ? payload.detail : uiText('问答服务请求失败（{value0}）', { value0: response.status })
         throw new ExplorationError(response.status === 401 ? uiText('登录状态已失效，请重新登录') : detail, response.status, payload)
       }
@@ -69,17 +71,17 @@ export function createExplorationApi({ storage = window.localStorage, fetch: fet
       if (responseType === 'pdf') {
         if (mime !== 'application/pdf') throw new ExplorationError(uiText('附件响应不是 PDF'))
         const blob = await response.blob()
-        controller.signal.throwIfAborted()
+        throwIfAborted(controller.signal)
         if (!blob.size || blob.size > 50 * 1024 * 1024) throw new ExplorationError(uiText('附件内容为空或超出大小限制'))
         return blob
       }
       if (mime !== 'application/json') throw new ExplorationError(uiText('问答服务响应格式错误，请检查接口映射'))
       const data = await response.json()
-      controller.signal.throwIfAborted()
+      throwIfAborted(controller.signal)
       return data
     } catch (error) {
       cleanup()
-      signal?.throwIfAborted()
+      throwIfAborted(signal)
       if (timedOut) throw new ExplorationError(uiText('问答服务请求超时，请重试'))
       if (error instanceof TypeError) throw new ExplorationError(uiText('无法连接问答服务，请重试'))
       throw error
@@ -96,7 +98,7 @@ export function createExplorationApi({ storage = window.localStorage, fetch: fet
       onOpen?.()
       while (true) {
         const { done, value } = await reader.read()
-        connection.signal.throwIfAborted()
+        throwIfAborted(connection.signal)
         connection.resetTimer()
         let chunk = decoder.decode(value, { stream: !done })
         if (pendingCR && chunk.startsWith('\n')) chunk = chunk.slice(1)
@@ -112,7 +114,7 @@ export function createExplorationApi({ storage = window.localStorage, fetch: fet
         if (done) return
       }
     } catch (error) {
-      signal?.throwIfAborted()
+      throwIfAborted(signal)
       if (connection.signal.aborted) throw new ExplorationError(uiText('问答连接超时，请重新连接'))
       throw error
     } finally { connection.cleanup(); await reader.cancel().catch(() => {}); reader.releaseLock() }
@@ -121,7 +123,7 @@ export function createExplorationApi({ storage = window.localStorage, fetch: fet
   return {
     async listTrees(options) {
       const payload = await request(treePath(), options)
-      if (!Array.isArray(payload) || payload.some(item => !isTreeId(item?.id) || typeof item.name !== 'string' || !item.name.trim() || typeof item.has_running_task !== 'boolean') || new Set(payload.map(item => item.id)).size !== payload.length) throw new ExplorationError(uiText('问答树列表格式无效'))
+      if (!Array.isArray(payload) || payload.some(item => !isTreeId(item?.id) || typeof item.name !== 'string' || !item.name.trim() || typeof item.has_running_task !== 'boolean' || parseTreeUpdatedAt(item.updated_at) === null) || new Set(payload.map(item => item.id)).size !== payload.length) throw new ExplorationError(uiText('问答树列表格式无效'))
       return payload
     },
     async createTree(name, options) {

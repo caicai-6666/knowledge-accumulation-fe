@@ -54,7 +54,7 @@ export function renderAnswerBlocks(content, { beautifyLinks = false, linkMetadat
   if (beautifyLinks) decorateLinks(tokens, linkMetadata)
   for (const token of tokens) {
     if (token.level === 0 && token.nesting !== -1) blocks.push([])
-    blocks.at(-1)?.push(token)
+    blocks[blocks.length - 1]?.push(token)
   }
   return blocks.map(block => markdown.renderer.render(block, markdown.options, environment))
 }

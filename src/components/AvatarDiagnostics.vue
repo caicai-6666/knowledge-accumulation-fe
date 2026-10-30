@@ -32,7 +32,7 @@ const copyLabel = computed(() => copied.value ? t('已复制诊断信息') : t('
 </template>
 
 <style scoped>
-.avatar-diagnostics { position: fixed; z-index: 2147483647; bottom: max(12px, env(safe-area-inset-bottom)); left: 12px; right: 12px; max-height: min(42dvh, 340px); overflow: auto; padding: 12px 16px; border: 1px solid #dce6df; border-radius: 16px; background: #fffffff5; color: #465c4e; box-shadow: 0 8px 32px #243b3029; font: 12px/1.6 system-ui; }
+.avatar-diagnostics { position: fixed; z-index: 2147483647; bottom: max(12px, env(safe-area-inset-bottom)); left: 12px; right: 12px; max-height: min(42vh, 340px); max-height: min(42dvh, 340px); overflow: auto; padding: 12px 16px; border: 1px solid #dce6df; border-radius: 16px; background: #fffffff5; color: #465c4e; box-shadow: 0 8px 32px #243b3029; font: 12px/1.6 system-ui; }
 .avatar-diagnostics summary { cursor: pointer; font-weight: 650; touch-action: manipulation; }
 .avatar-diagnostics__toolbar { display: flex; align-items: center; gap: 12px; margin-top: 10px; }
 .avatar-diagnostics button { padding: 6px 12px; border: 1px solid #cadbd0; border-radius: 9px; background: #e8f2ec; color: #355c44; font: inherit; cursor: pointer; touch-action: manipulation; }

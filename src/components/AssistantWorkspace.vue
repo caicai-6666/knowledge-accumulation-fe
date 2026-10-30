@@ -1,6 +1,6 @@
 <script setup>
 import { locale, t, localizedRef, uiText } from '../i18n/index.js'
-import { computed, nextTick, onActivated, onBeforeUnmount, onDeactivated, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onActivated, onBeforeUnmount, onDeactivated, onMounted, inject, ref, watch } from 'vue'
 import QuestionTree from './QuestionTree.vue'
 import OperationToast from './OperationToast.vue'
 import { useOperationToast } from '../composables/useOperationToast.js'
@@ -10,10 +10,12 @@ import PdfPreviewOverlay from './PdfPreviewOverlay.vue'
 import AdvanceModeSwitch from './AdvanceModeSwitch.vue'
 import MarkdownMessage from './MarkdownMessage.vue'
 import AnswerProcess from './AnswerProcess.vue'
+import DeleteTreeSelectionDialog from './DeleteTreeSelectionDialog.vue'
+import { useTreePins } from '../composables/useTreePins.js'
+import { deleteTreeSelection } from '../services/deleteTreeSelection.js'
 import DeleteQuestionTreeDialog from './DeleteQuestionTreeDialog.vue'
 import { useExplorationTrees } from '../composables/useExplorationTrees.js'
 import { useAssistantPanelResize } from '../composables/useAssistantPanelResize.js'
-import { useSideDrawer } from '../composables/useSideDrawer.js'
 import { createMessageScrollFollower } from '../services/messageScrollFollower.js'
 import { clipboardFiles } from '../services/clipboardFiles.js'
 
@@ -34,12 +36,76 @@ function changeFontSize(value) {
   try { localStorage.setItem(fontSizeKey, String(fontSize.value)) } catch { /* 本地存储不可用不阻断阅读。 */ }
 }
 const { workspaceElement, chatElement, resizeHandle, chatWidth, displayedWidth, bounds, resizing, stacked, startResize, moveResize, finishResize, resizeWithKeyboard, resetWidth } = useAssistantPanelResize(() => props.active)
-const { dialog: treeDrawer, content: treeDrawerContent, trigger: treeDrawerTrigger, open: treeDrawerOpen, visible: treeDrawerVisible, show: showTreeDrawer, close: closeTreeDrawer } = useSideDrawer({ enabled: () => stacked.value, active: () => props.active })
-const { runningTreeIds, unreadTreeIds, trees, tree, isNewExploration, selectedId, selectedNode, context, branchAnchorId, draft, pending, reasoningEffort, canAdvance, advanceMode, queuedQuestions, sendQueued, removeQueued, attachments, convertingAttachments, attachmentError, addAttachments, removeAttachment, selectTree, selectNode, newTree, sendQuestion, stopAnswer, treeMutation, renameTree, deleteTree, revalidate, submissionUncertain, contextPath, loading, listLoading, error, submitting, cancelling, connectionError, reconnect, loadTrees, canSteer, previewResource } = useExplorationTrees({ userId: props.user?.userid, active: () => props.active, onAuthenticationExpired: () => emit('authentication-expired') })
+// 两侧内容挂到布局容器外沿，推移主区域时保持同一份会话和树图实例。
+const mobileDrawers = inject('mobile-workspace-drawers')
+const treeDrawerContent = ref(null)
+const treeDrawerOpen = computed(() => mobileDrawers.side.value === 'right')
+const listDrawerOpen = computed(() => mobileDrawers.side.value === 'left')
+function closeTreeDrawer() { mobileDrawers.close() }
+async function selectSearchNode({ treeId, nodeId }) {
+  const loaded = await selectTree(treeId)
+  if (!loaded || tree.value.id !== treeId) return
+  if (!loaded.nodes.some(node => node.id === nodeId && node.kind === 'task')) { error.value = uiText('对应对话已更新，请重新搜索'); return }
+  selectNode(nodeId)
+  mobileDrawers.close()
+}
+function selectListedTree(id) { if (isNewExploration.value || id !== tree.value.id) selectTree(id); mobileDrawers.close() }
+function createListedTree() { createTree(); mobileDrawers.close() }
+watch([stacked, () => props.active], ([available, active]) => { if (!available || !active) mobileDrawers.close() })
+const { searchRecords, searchStatus, retrySearchCache, runningTreeIds, unreadTreeIds, trees, tree, isNewExploration, selectedId, selectedNode, context, branchAnchorId, draft, pending, reasoningEffort, canAdvance, advanceMode, queuedQuestions, sendQueued, removeQueued, attachments, convertingAttachments, attachmentError, addAttachments, removeAttachment, selectTree, selectNode, newTree, sendQuestion, stopAnswer, treeMutation, renameTree, deleteTree, revalidate, submissionUncertain, contextPath, loading, listLoading, error, submitting, cancelling, loadTrees, canSteer, previewResource } = useExplorationTrees({ userId: props.user?.userid, active: () => props.active, onAuthenticationExpired: () => emit('authentication-expired') })
 watch(() => props.user, () => { void revalidate() })
+const { pinnedIds, setPinned } = useTreePins(props.user?.userid, trees)
+const selectionMode = ref(false), selectedTreeIds = ref(new Set())
+const batchTargetIds = ref([]), batchDeleting = ref(false), batchCompleted = ref(0), batchOriginalCount = ref(0)
+const batchDeleteError = localizedRef('')
+let batchRevision = 0
+watch(selectionMode, value => {
+  mobileDrawers.selecting.value = value
+  if (!value) selectedTreeIds.value = new Set()
+}, { flush: 'sync' })
+watch([listDrawerOpen, stacked, () => props.active], ([open, mobile, active]) => {
+  if (open && mobile && active) return
+  batchRevision++; batchTargetIds.value = []; batchDeleteError.value = ''; selectionMode.value = false
+})
+onBeforeUnmount(() => { batchRevision++; mobileDrawers.selecting.value = false })
+function pinTreeSelection({ ids, pinned }) {
+  if (treeActionsBusy.value || !ids.length) return
+  const persisted = setPinned(ids, pinned)
+  selectionMode.value = false
+  showToast(persisted ? uiText(pinned ? '所选问答树已置顶' : '所选问答树已取消置顶') : uiText('置顶已更新，但浏览器无法保存，仅本次访问有效'), persisted ? 'success' : 'error')
+}
+function requestSelectionDelete(ids) {
+  if (treeActionsBusy.value || !ids.length) return
+  const selected = new Set(ids)
+  batchTargetIds.value = trees.value.filter(tree => selected.has(tree.id)).map(tree => tree.id)
+  batchOriginalCount.value = batchTargetIds.value.length; batchCompleted.value = 0; batchDeleteError.value = ''
+}
+function closeSelectionDelete() { if (!batchDeleting.value) { batchRevision++; batchTargetIds.value = []; batchDeleteError.value = '' } }
+async function confirmSelectionDelete() {
+  if (treeActionsBusy.value || !batchTargetIds.value.length) return
+  const revision = ++batchRevision
+  batchDeleting.value = true; batchDeleteError.value = ''
+  try {
+    const result = await deleteTreeSelection(batchTargetIds.value, deleteTree, {
+      active: () => revision === batchRevision && props.active && listDrawerOpen.value && stacked.value,
+      onDeleted: () => { batchCompleted.value++ },
+    })
+    if (revision !== batchRevision) return
+    const remaining = new Set(result.remaining)
+    batchTargetIds.value = batchTargetIds.value.filter(id => remaining.has(id))
+    if (!result.remaining.length) {
+      selectionMode.value = false
+      showToast(uiText('已删除 {value0} 棵问答树', { value0: batchOriginalCount.value }))
+    } else if (result.error?.status === 401) {
+      batchTargetIds.value = []; selectionMode.value = false
+    } else if (result.error && result.error.name !== 'AbortError') {
+      batchDeleteError.value = result.error.message ? result.error : uiText('删除尚未完成，请重试')
+    }
+  } finally { batchDeleting.value = false }
+}
 const deleteTarget = ref(null)
 const deleteError = localizedRef('')
-const treeActionsBusy = computed(() => Boolean(treeMutation.value || submitting.value || cancelling.value || convertingAttachments.value || loading.value || listLoading.value))
+const treeActionsBusy = computed(() => Boolean(batchDeleting.value || treeMutation.value || submitting.value || cancelling.value || convertingAttachments.value || loading.value || listLoading.value))
 function requestTreeDelete(id) {
   if (treeActionsBusy.value) return
   deleteTarget.value = trees.value.find(item => item.id === id) || null
@@ -52,7 +118,7 @@ async function renameTreeWithToast(id, name) {
     if (result !== false) showToast(uiText('问答树名称已更新'))
     return result
   } catch (cause) {
-    if (cause.name !== 'AbortError') showToast(cause.message ? cause : uiText('修改名称失败，请重试'), 'error')
+    if (cause.name !== 'AbortError' && cause.status !== 401) showToast(cause.message ? cause : uiText('修改名称失败，请重试'), 'error')
     throw cause
   }
 }
@@ -66,7 +132,7 @@ async function confirmTreeDelete(confirmation) {
       showToast(uiText('问答树已删除'))
     }
   } catch (cause) {
-    if (cause.name !== 'AbortError') {
+    if (cause.name !== 'AbortError' && cause.status !== 401) {
       const failure = cause.message ? cause : uiText('删除尚未完成，请重试')
       deleteError.value = failure
       showToast(failure, 'error')
@@ -103,7 +169,8 @@ async function previewFile(item) {
     const url = await previewResource(item, request.signal)
     if (!request.signal.aborted && previewRequest === request) previewAttachment.value = { ...item, url }
   } catch (cause) {
-    if (!request.signal.aborted) previewError.value = cause.message ? cause : uiText('无法加载附件')
+    if (cause.status === 401) previewAttachment.value = null
+    else if (!request.signal.aborted) previewError.value = cause.message ? cause : uiText('无法加载附件')
   } finally { if (previewRequest === request) previewLoading.value = false }
 }
 function removeFile(id) {
@@ -213,17 +280,22 @@ onBeforeUnmount(() => { scrollDisposed = true; ++positioningRevision; scrollFoll
       <header class="agent-chat__header" :aria-busy="loading || listLoading">
         <div class="agent-chat__tree-picker">
           <span id="agent-chat-title">{{ t('问答树选择') }}</span>
-          <QuestionTreeSelect :trees="trees" :unread-tree-ids="unreadTreeIds" :running-tree-ids="runningTreeIds" :model-value="isNewExploration ? '' : tree.id" :active="active" :busy="treeActionsBusy" :rename="renameTreeWithToast" @update:model-value="selectTree" @create="createTree" @delete="requestTreeDelete" />
+          <Teleport :to="mobileDrawers.listHost.value || 'body'" :disabled="!stacked || !mobileDrawers.listHost.value">
+            <aside id="mobile-question-list" class="mobile-list-drawer" :class="{ 'is-visible': listDrawerOpen }" :aria-label="t('问答树列表')">
+              <QuestionTreeSelect :embedded="stacked" :trees="trees" :pinned-ids="pinnedIds" v-model:selection-mode="selectionMode" v-model:selected-ids="selectedTreeIds" @pin-selection="pinTreeSelection" @delete-selection="requestSelectionDelete" :user="user" @search-mode="mobileDrawers.searching.value = $event" :search-records="searchRecords" :search-status="searchStatus" @retry-search="retrySearchCache" @select-node="selectSearchNode" :unread-tree-ids="unreadTreeIds" :running-tree-ids="runningTreeIds" :model-value="isNewExploration ? '' : tree.id" :active="active && (!stacked || listDrawerOpen)" :busy="treeActionsBusy" :rename="renameTreeWithToast" :refresh="loadTrees" @update:model-value="selectListedTree" @create="createListedTree" @delete="requestTreeDelete" />
+              <Teleport :to="mobileDrawers.settingsHost.value || 'body'" :disabled="!stacked || !mobileDrawers.settingsHost.value">
+              <div v-if="stacked" v-show="Boolean(mobileDrawers.settingsHost.value)" class="mobile-list-drawer__tools"><span>{{ t('问答字号调整') }}</span><button type="button" :disabled="fontSize <= 12" :aria-label="t('缩小字号')" @click="changeFontSize(fontSize - 1)">A−</button><button type="button" :aria-label="t('恢复默认字号')" @click="changeFontSize(13)">{{ fontSize }}px</button><button type="button" :disabled="fontSize >= 20" :aria-label="t('放大字号')" @click="changeFontSize(fontSize + 1)">A+</button></div>
+              </Teleport>
+            </aside>
+          </Teleport>
         </div>
         <div class="agent-chat__font-size" role="group" :aria-label="t('问答字号调整')">
           <button type="button" :aria-label="t('缩小字号')" :title="t('缩小字号')" :disabled="fontSize <= 12" @click="changeFontSize(fontSize - 1)">A<span aria-hidden="true">−</span></button>
           <button type="button" class="agent-chat__font-value" :aria-label="t('当前字号 {value0} 像素，点击恢复默认', { value0: fontSize })" :title="t('恢复默认字号')" @click="changeFontSize(13)">{{ fontSize }}<span>px</span></button>
           <button type="button" :aria-label="t('放大字号')" :title="t('放大字号')" :disabled="fontSize >= 20" @click="changeFontSize(fontSize + 1)">A<span aria-hidden="true">+</span></button>
         </div>
-        <button ref="treeDrawerTrigger" type="button" class="agent-chat__tree-trigger" :aria-label="t('查看问答树')" aria-haspopup="dialog" aria-controls="mobile-question-tree" :aria-expanded="treeDrawerOpen" @click="showTreeDrawer"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="2" width="6" height="5" rx="2" /><rect x="2" y="17" width="6" height="5" rx="2" /><rect x="16" y="17" width="6" height="5" rx="2" /><path d="M12 7v5M5 17v-5h14v5" /></svg><span>{{ t('问答树') }}</span></button>
-        <span v-if="loading || listLoading" class="agent-chat__loading" role="status">{{ loading ? t('正在加载问答记录…') : t('正在加载问答树…') }}</span>
       </header>
-      <div v-if="error" class="agent-chat__service-status is-error" role="alert"><span>{{ error }}</span><button type="button" :disabled="loading || listLoading || submitting" @click="connectionError ? reconnect() : isNewExploration ? loadTrees() : selectTree(tree.id)">{{ connectionError ? t('重新连接') : t('重新加载') }}</button></div>
+      <div v-if="error" class="agent-chat__service-status is-error" role="alert"><span>{{ error }}</span><button type="button" :disabled="loading || listLoading || submitting" @click="isNewExploration ? loadTrees() : selectTree(tree.id)">{{ t('重新加载') }}</button></div>
       <div ref="messages" class="agent-chat__messages" tabindex="0" :aria-label="t('从根到当前任务的问答记录')">
         <div ref="messageContent" class="agent-chat__message-list" :style="{ '--chat-font-size': `${fontSize}px` }" :class="{ 'is-empty': !context.length }">
           <div v-if="!context.length && !loading && (isNewExploration || tree.loaded)" class="agent-chat__empty"><HandwritingPrompt :key="tree.id" :active="active" /></div>
@@ -307,29 +379,27 @@ onBeforeUnmount(() => { scrollDisposed = true; ++positioningRevision; scrollFoll
       @pointerdown="startResize" @pointermove="moveResize" @pointerup="finishResize" @pointercancel="finishResize" @lostpointercapture="finishResize"
       @keydown="resizeWithKeyboard" @dblclick="resetWidth"
     ><span aria-hidden="true"></span></button>
+    <DeleteTreeSelectionDialog v-if="batchTargetIds.length && active" :count="batchTargetIds.length" :completed="batchCompleted" :busy="batchDeleting" :error="batchDeleteError" @close="closeSelectionDelete" @confirm="confirmSelectionDelete" />
     <DeleteQuestionTreeDialog :open="Boolean(deleteTarget) && active" :name="deleteTarget?.title || ''" :busy="treeMutation?.type === 'delete'" :error="deleteError" @close="closeTreeDelete" @confirm="confirmTreeDelete">
       <OperationToast :message="deleteTarget && active ? toastMessage : ''" :tone="toastTone" :revision="toastRevision" embedded />
     </DeleteQuestionTreeDialog>
     <Teleport to="body"><OperationToast :message="!deleteTarget && active ? toastMessage : ''" :tone="toastTone" :revision="toastRevision" /></Teleport>
     <PdfPreviewOverlay :open="Boolean(previewAttachment) && active" :src="previewAttachment?.url || ''" :label="previewAttachment?.file?.name || previewAttachment?.name || ''" :loading="previewLoading" :error="previewError" @close="previewAttachment = null" />
-    <Teleport to="body">
-      <dialog id="mobile-question-tree" ref="treeDrawer" class="mobile-tree-drawer" :class="{ 'is-visible': treeDrawerVisible }" :aria-label="t('问答树')" @cancel.prevent="closeTreeDrawer" @close="closeTreeDrawer" @click.self="closeTreeDrawer">
+    <Teleport :to="mobileDrawers.treeHost.value || 'body'">
+      <aside v-if="stacked" id="mobile-question-tree" class="mobile-tree-drawer" :class="{ 'is-visible': treeDrawerOpen }" role="dialog" :aria-modal="treeDrawerOpen ? true : undefined" :aria-label="t('问答树')">
         <div class="mobile-tree-drawer__surface">
-          <header class="mobile-tree-drawer__header"><div><strong>{{ t('问答树') }}</strong><span>{{ isNewExploration ? t('开始新探索') : tree.title }}</span></div><button type="button" data-drawer-close :aria-label="t('关闭问答树')" @click="closeTreeDrawer"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5 5 10 10M15 5 5 15" /></svg></button></header>
+          <header class="mobile-tree-drawer__header"><div><strong>{{ t('问答树') }}</strong><span v-if="!isNewExploration">{{ tree.title }}</span></div><button type="button" data-drawer-close :aria-label="t('关闭问答树')" @click="closeTreeDrawer"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5 5 10 10M15 5 5 15" /></svg></button></header>
           <div ref="treeDrawerContent" class="mobile-tree-drawer__content"></div>
         </div>
-      </dialog>
+      </aside>
     </Teleport>
     <Teleport :to="treeDrawerContent || 'body'" :disabled="!stacked || !treeDrawerContent">
-      <QuestionTree id="assistant-tree-panel" :tree="tree" :selected-id="selectedId" :context-ids="contextIds" :active="active && (!stacked || treeDrawerOpen)" :recenter-on-activate="stacked" :touch-navigation="stacked" @select="chooseDrawerNode" @main-end="chooseDrawerNode(tree.mainLeafId)" />
+      <QuestionTree id="assistant-tree-panel" :tree="tree" :selected-id="selectedId" :context-ids="contextIds" :active="active && (!stacked || treeDrawerOpen)" :recenter-on-activate="stacked" :touch-navigation="stacked" @select="chooseDrawerNode" />
     </Teleport>
   </div>
 </template>
 
 <style scoped>
-.agent-chat__loading { position: absolute; right: 30px; bottom: 0; color: #8b9a90; font-size: 11px; line-height: 18px; pointer-events: none; animation: agent-loading-appear .16s ease .3s both; }
-@keyframes agent-loading-appear { from { opacity: 0; } to { opacity: 1; } }
-@media (prefers-reduced-motion: reduce) { .agent-chat__loading { animation-duration: 0s; } }
 .agent-chat__service-status { display: flex; align-items: center; justify-content: space-between; flex: none; gap: 12px; margin: 0 30px 10px; padding: 10px 12px; color: #789082; background: #ffffff80; border-radius: 10px; font-size: 12px; line-height: 1.6; }
 .agent-chat__service-status.is-error { color: #9b655e; background: #fcf0edb3; }
 .agent-chat__service-status button { flex: none; padding: 3px 6px; color: inherit; background: transparent; border: 0; text-decoration: underline; }
@@ -350,17 +420,17 @@ onBeforeUnmount(() => { scrollDisposed = true; ++positioningRevision; scrollFoll
 .agent-chat__header { position: relative; z-index: 11; display: flex; align-items: center; justify-content: space-between; flex: none; flex-wrap: wrap; gap: 12px; padding: 24px 30px 18px; }
 .agent-chat__font-size { display: flex; align-items: center; flex: none; gap: 2px; margin-left: auto; padding: 3px; border: 1px solid #dce5dd; border-radius: 10px; background: #ffffff70; box-shadow: 0 2px 7px #49655206; }
 .agent-chat__font-size button { display: flex; align-items: center; justify-content: center; gap: 1px; height: 28px; min-width: 28px; padding: 0 5px; border: 0; border-radius: 7px; background: transparent; color: #607969; font-size: 13px; transition: background .16s, color .16s; }
-.agent-chat__font-size button:hover:not(:disabled) { background: #e4ece5; color: #34543f; }
+@media (hover: hover) and (pointer: fine) { .agent-chat__font-size button:hover:not(:disabled) { background: #e4ece5; color: #34543f; } }
 .agent-chat__font-size button:focus-visible { outline: 2px solid #9285ba; outline-offset: 2px; }
 .agent-chat__font-size button:disabled { opacity: .3; cursor: default; }
 .agent-chat__font-size button > span { font-size: 10px; }
 .agent-chat__font-size .agent-chat__font-value { min-width: 40px; font-size: 11px; font-variant-numeric: tabular-nums; }
 .agent-chat__font-value > span { color: #94a299; }
 .agent-chat__tree-picker { display: flex; align-items: center; gap: 14px; flex: 1 1 220px; min-width: 0; }
-.agent-chat__tree-picker > :deep(.tree-select) { flex: 0 1 380px; min-width: 0; }
+.agent-chat__tree-picker :deep(.tree-select) { flex: 0 1 380px; min-width: 0; }
 .agent-chat__tree-picker > span { flex: none; color: #7f9185; font-size: 12px; white-space: nowrap; }
 button { font: inherit; cursor: pointer; }
-.agent-chat__messages { position: relative; overflow-anchor: none; flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: #b8c8bf55 transparent; }
+.agent-chat__messages { position: relative; overflow-anchor: none; flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: #b8c8bf55 transparent; -webkit-mask-image: linear-gradient(to bottom, transparent, #0007 8px, #000d 16px, #000 24px, #000 100%); mask-image: linear-gradient(to bottom, transparent, #0007 8px, #000d 16px, #000 24px, #000 100%); }
 .agent-chat__message-list { position: relative; display: flex; flex-direction: column; gap: 28px; min-height: var(--message-pinned-height, 100%); box-sizing: border-box; padding: 28px 30px 24px; }
 .agent-chat__message-list.is-empty { padding: 0; }
 .agent-chat__message-list.is-empty > .agent-chat__empty { flex: 1; }
@@ -409,11 +479,10 @@ button { font: inherit; cursor: pointer; }
   transition: color 0.18s, background-color 0.18s;
 }
 
-.agent-chat__answer-actions button:hover,
 .agent-chat__answer-actions button:focus-visible {
   color: #3f4d46;
-  background: #e9eeeb;
-  outline: 0;
+  outline: 2px solid #9285ba;
+  outline-offset: 2px;
 }
 
 .agent-chat__answer-actions button.is-copied {
@@ -479,7 +548,7 @@ button { font: inherit; cursor: pointer; }
 .agent-chat__composer:focus-within { border-color: #becfc1; }
 .agent-chat__attachment-controls { display: flex; flex: none; align-items: center; gap: 14px; }
 .agent-chat__attach { position: relative; display: grid; place-items: center; flex: none; width: 36px; height: 36px; padding: 0; color: #56635c; background: #eef2f0; border: 1px solid #dfe6e2; border-radius: 50%; transition: color .22s, background-color .22s; }
-.agent-chat__attach:hover:not(:disabled) { color: #344c41; background: #dfe9e4; }
+@media (hover: hover) and (pointer: fine) { .agent-chat__attach:hover:not(:disabled) { color: #344c41; background: #dfe9e4; } }
 .agent-chat__attach > svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; }
 .agent-chat__attach > span { position: absolute; top: -4px; right: -4px; display: grid; place-items: center; min-width: 16px; height: 16px; padding: 0 4px; color: #fff; font-size: 9px; font-weight: 700; background: #7063d8; border: 2px solid #fff; border-radius: 999px; }
 .agent-chat__attachments { display: flex; flex-wrap: nowrap; gap: 6px; min-width: 0; margin: 0 0 9px; padding: 2px 0; overflow-x: auto; overflow-y: hidden; list-style: none; scrollbar-width: none; }
@@ -528,9 +597,9 @@ button { font: inherit; cursor: pointer; }
   cursor: pointer;
 }
 .agent-chat__queue-steer { background: #e6ece7; }
-.agent-chat__queue-steer:hover:not(:disabled) { color: #2e4e3a; background: #dce6dd; }
+@media (hover: hover) and (pointer: fine) { .agent-chat__queue-steer:hover:not(:disabled) { color: #2e4e3a; background: #dce6dd; } }
 .agent-chat__queue-remove { padding: 5px 3px; color: #929b95; }
-.agent-chat__queue-remove:hover:not(:disabled) { color: #b25b53; background: #f4e4e1; }
+@media (hover: hover) and (pointer: fine) { .agent-chat__queue-remove:hover:not(:disabled) { color: #b25b53; background: #f4e4e1; } }
 .agent-chat__queue-steer:disabled,
 .agent-chat__queue-remove:disabled { cursor: default; opacity: 0.45; }
 .agent-chat__queue-steer svg,
@@ -555,7 +624,7 @@ button { font: inherit; cursor: pointer; }
 .agent-chat__sent-attachments { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; max-width: 88%; margin: 0 0 10px auto; padding: 0; list-style: none; }
 .agent-chat__sent-attachments > li { width: 244px; max-width: 100%; min-width: 0; }
 .agent-chat__file-card { display: flex; align-items: center; gap: 11px; width: 100%; padding: 11px 13px; color: #53685b; text-align: left; background: linear-gradient(125deg, #ffffffdc, #f1f5f2c9); border: 1px solid #dce6de; border-radius: 12px; box-shadow: inset 0 1px #fff, 0 3px 10px #34473e06; transition: border-color .18s, background .18s, box-shadow .18s; }
-.agent-chat__file-card:hover { background: #ffffffed; border-color: #bccfc2; box-shadow: inset 0 1px #fff, 0 4px 14px #34473e0c; }
+@media (hover: hover) and (pointer: fine) { .agent-chat__file-card:hover { background: #ffffffed; border-color: #bccfc2; box-shadow: inset 0 1px #fff, 0 4px 14px #34473e0c; } }
 .agent-chat__file-card:focus-visible { outline: 2px solid #9285ba; outline-offset: 3px; }
 .agent-chat__file-icon { display: grid; place-items: center; flex: 0 0 34px; height: 40px; color: #7c8e81; background: #e8eeea; border-radius: 7px; }
 .agent-chat__file-icon svg { width: 23px; height: 28px; fill: #ffffffb3; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
@@ -565,9 +634,9 @@ button { font: inherit; cursor: pointer; }
 @media (prefers-reduced-motion: reduce) { .agent-chat__file-card { transition: none; } }
 .agent-chat__attachment { display: flex; align-items: center; flex: none; gap: 6px; min-width: 0; max-width: min(180px, 100%); padding: 4px 5px 4px 10px; color: #53685b; background: #edf2ee; border: 1px solid #dce6de; border-radius: 9px; }
 .agent-chat__attachment > button.agent-chat__attachment-name { display: block; flex: 1; width: auto; height: auto; padding: 0; text-align: left; background: transparent; border: 0; border-radius: 3px; min-width: 0; overflow: hidden; color: inherit; font-size: 12px; line-height: 20px; text-decoration: none; text-overflow: ellipsis; white-space: nowrap; }
-.agent-chat__attachment > button.agent-chat__attachment-name:hover { background: transparent; color: #2e6447; }
+@media (hover: hover) and (pointer: fine) { .agent-chat__attachment > button.agent-chat__attachment-name:hover { background: transparent; color: #2e6447; } }
 .agent-chat__attachment > button { display: grid; place-items: center; flex: 0 0 22px; width: 22px; height: 22px; padding: 0; color: #829287; background: transparent; border: 0; border-radius: 6px; }
-.agent-chat__attachment > button:hover { color: #b75353; background: #f6e5e3; }
+@media (hover: hover) and (pointer: fine) { .agent-chat__attachment > button:hover { color: #b75353; background: #f6e5e3; } }
 .agent-chat__attachment svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; }
 .agent-chat__attachment > button:focus-visible { outline: 2px solid #9285ba; outline-offset: 1px; }
 .agent-chat__attachment-error { margin: 5px 0; color: #a85e60; font-size: 11px; line-height: 1.6; overflow-wrap: anywhere; }
@@ -595,19 +664,18 @@ button { font: inherit; cursor: pointer; }
 .agent-chat__reasoning-send { display: flex; flex: none; align-items: center; gap: 10px; }
 .agent-chat__composer-actions > span { flex: 1; min-width: 130px; color: #b1b9b2; font-size: 9px; }
 .agent-chat__send { display: grid; place-items: center; flex: none; width: 34px; height: 34px; padding: 0; color: #f4fbf7; background: #2d4b3e; border: 0; border-radius: 50%; box-shadow: 0 8px 18px #28473a2b; }
-.agent-chat__send:hover:not(:disabled) { background: #416b59; }
+@media (hover: hover) and (pointer: fine) { .agent-chat__send:hover:not(:disabled) { background: #416b59; } }
 .agent-chat__send svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
 button:disabled { opacity: .38; cursor: default; }
 button:focus-visible, select:focus-visible, .agent-chat__messages:focus-visible { outline: 2px solid #9285ba; outline-offset: 2px; }
 .agent-chat__empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; min-height: 100%; padding: 40px 24px; text-align: center; }
 .sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 /* 保留桌面双栏；小屏树图移入同一实例的侧边抽屉。 */
-.agent-chat__tree-trigger { display: none; align-items: center; justify-content: center; gap: 7px; min-height: 34px; padding: 0 11px; color: #567760; font-size: 12px; background: #f1f6f2; border: 1px solid #dae6dd; border-radius: 10px; box-shadow: inset 0 1px #fff, 0 2px 8px #395a4308; }
-.agent-chat__tree-trigger > svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.35; stroke-linecap: round; stroke-linejoin: round; }
-.mobile-tree-drawer { position: fixed; --drawer-top-gap: max(16px, env(safe-area-inset-top)); --drawer-bottom-gap: max(16px, env(safe-area-inset-bottom)); inset: var(--drawer-top-gap) 8px var(--drawer-bottom-gap) auto; width: min(94vw, 620px); max-width: none; height: calc(100dvh - var(--drawer-top-gap) - var(--drawer-bottom-gap)); max-height: none; margin: 0; padding: 0; overflow: hidden; color: #344c3e; background: #f8fbf9; border: 1px solid #ffffffce; border-radius: 24px; box-shadow: -12px 12px 48px #273e4b30, 0 3px 12px #273e4b14; opacity: 0; transform: translateX(105%); transition: transform .26s cubic-bezier(.22,1,.36,1), opacity .2s ease; }
-.mobile-tree-drawer.is-visible { opacity: 1; transform: translateX(0); }
-.mobile-tree-drawer::backdrop { background: #263d4b3b; backdrop-filter: blur(5px); opacity: 0; transition: opacity .26s ease; }
-.mobile-tree-drawer.is-visible::backdrop { opacity: 1; }
+.mobile-list-drawer { display: contents; }
+.mobile-tree-drawer { height: 100%; width: 100%; color: #344c3e; }
+.mobile-list-drawer__tools { display: flex; align-items: center; gap: 8px; padding: 14px 0; color: #202123; font-size: 14px; }
+.mobile-list-drawer__tools > span { flex: 1; }
+.mobile-list-drawer__tools button { min-width: 34px; min-height: 36px; border: 0; border-radius: 8px; background: #f4f4f5; color: #34353a; }
 .mobile-tree-drawer__surface { display: flex; flex-direction: column; height: 100%; }
 .mobile-tree-drawer__header { display: flex; align-items: center; justify-content: space-between; flex: none; gap: 12px; padding: 20px 18px 16px; border-bottom: 1px solid #dfe8e1; }
 .mobile-tree-drawer__header > div { display: grid; gap: 6px; min-width: 0; }
@@ -616,11 +684,11 @@ button:focus-visible, select:focus-visible, .agent-chat__messages:focus-visible 
 .mobile-tree-drawer__header button { display: grid; place-items: center; flex: none; width: 38px; height: 38px; padding: 0; color: #7a9182; background: #edf3ef; border: 1px solid #e0e9e2; border-radius: 12px; }
 .mobile-tree-drawer__header button svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; }
 .mobile-tree-drawer__content { display: flex; flex: 1; min-height: 0; }
-.mobile-tree-drawer__content :deep(.question-tree) { flex: 1; width: 100%; height: 100%; border: 0; }
+.mobile-tree-drawer__content :deep(.question-tree) { flex: 1; width: 100%; height: 100%; border: 0; background: transparent; }
 .mobile-tree-drawer__content :deep(.question-tree__header) { gap: 8px; padding: 15px 16px; }
 .mobile-tree-drawer__content :deep(.question-tree__header h2) { display: none; }
 .mobile-tree-drawer__content :deep(.question-tree__header-actions) { gap: 6px; }
-.mobile-tree-drawer__content :deep(.question-tree__main-end) { padding: 6px; font-size: 10px; }
+.mobile-tree-drawer__content :deep(.question-tree__expand-all) { padding: 6px; font-size: 10px; }
 .mobile-tree-drawer__content :deep(.question-tree__legend) { flex-wrap: wrap; padding: 0 16px 12px; }
 .mobile-tree-drawer__content :deep(.question-tree__footer) { padding: 12px; gap: 9px; }
 .mobile-tree-drawer__content :deep(.question-tree__tools) { justify-content: space-between; width: 100%; }
@@ -630,17 +698,11 @@ button:focus-visible, select:focus-visible, .agent-chat__messages:focus-visible 
   .assistant-workspace > :deep(.question-tree) { display: none; }
   .agent-chat { height: 100%; min-height: 0; }
   .agent-chat::after, .assistant-workspace__resize-handle { display: none; }
-  .agent-chat__header { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 9px 12px; padding: 14px 16px 10px; }
-  .agent-chat__tree-picker { grid-column: 1 / -1; width: 100%; gap: 10px; }
-  .agent-chat__tree-picker > :deep(.tree-select) { flex: 1; }
-  .agent-chat__font-size { grid-column: 1; grid-row: 2; justify-self: start; margin-left: 0; }
-  .agent-chat__tree-trigger { display: inline-flex; grid-column: 2; grid-row: 2; }
-  .agent-chat__loading { right: 16px; bottom: -12px; }
   .agent-chat__message-list { gap: 24px; padding: 20px 16px; }
   .agent-chat__question p { max-width: 94%; }
   .agent-chat__sent-attachments { max-width: 94%; }
   .agent-chat__empty { min-height: 100%; padding: 24px 16px; }
-  .agent-chat__composer { margin: 0 10px 10px; padding: 10px 12px; }
+  .agent-chat__composer { margin: 0 10px 16px; padding: 10px 12px calc(10px + env(safe-area-inset-bottom)); }
   .agent-chat__composer textarea { font-size: 16px; min-height: 52px; }
   .agent-chat__composer-actions { display: grid; grid-template-columns: 36px minmax(0, 1fr); gap: 7px 10px; }
   .agent-chat__attachment-controls { grid-column: 1; grid-row: 1; }
@@ -652,14 +714,7 @@ button:focus-visible, select:focus-visible, .agent-chat__messages:focus-visible 
   .agent-chat__service-status { margin: 0 16px 8px; }
 }
 @media (max-width: 900px) {
-  .workspace.is-short-viewport:not(:has(.tree-select.is-open)) .agent-chat__header { grid-template-columns: minmax(0, 1fr) 38px; padding: 7px 12px; }
-  .workspace.is-short-viewport:not(:has(.tree-select.is-open)) .agent-chat__tree-picker { grid-column: 1; }
-  .workspace.is-short-viewport:not(:has(.tree-select.is-open)) .agent-chat__tree-picker > span,
-  .workspace.is-short-viewport:not(:has(.tree-select.is-open)) .agent-chat__font-size,
-  .workspace.is-short-viewport:not(:has(.tree-select.is-open)) .agent-chat__tree-trigger > span { display: none; }
-  .workspace.is-short-viewport:not(:has(.tree-select.is-open)) .agent-chat__tree-trigger { grid-column: 2; grid-row: 1; width: 38px; padding: 0; }
-  .workspace.is-short-viewport:not(:has(.tree-select.is-open)) .agent-chat__tree-picker :deep(.tree-select__trigger) { min-height: 42px; padding-block: 7px; }
-  .workspace.is-short-viewport .agent-chat__composer { padding: 7px 10px; margin-bottom: 7px; }
+  .workspace.is-short-viewport .agent-chat__composer { padding: 7px 10px calc(7px + env(safe-area-inset-bottom)); margin-bottom: 10px; }
   .workspace.is-short-viewport .agent-chat__composer textarea { height: 44px; min-height: 44px; }
   .workspace.is-short-viewport .agent-chat__composer-actions { row-gap: 4px; }
   .workspace.is-short-viewport .agent-chat__empty { padding-block: 12px; }
@@ -667,10 +722,14 @@ button:focus-visible, select:focus-visible, .agent-chat__messages:focus-visible 
   .workspace.is-short-viewport .agent-chat__empty :deep(.handwriting-prompt-shell) { min-height: 0; }
   .workspace.is-short-viewport .agent-chat__empty :deep(.handwriting-prompt) { width: 120px; }
 }
+@media (max-width: 900px) {
+  .mobile-list-drawer { display: flex; flex: 1; flex-direction: column; min-height: 0; }
+  .agent-chat__header, .workspace.is-short-viewport .agent-chat__header { height: 0; min-height: 0; padding: 0; }
+  .agent-chat__tree-picker, .agent-chat__font-size { display: none; }
+}
 @media (max-width: 360px) {
   .agent-chat__reasoning { gap: 5px; font-size: 9px; }
   .agent-chat__reasoning { --reasoning-option-width: 48px; }
 }
-@media (prefers-reduced-motion: reduce) { .mobile-tree-drawer, .mobile-tree-drawer::backdrop { transition: none; } }
 @media (prefers-reduced-motion: reduce) { .agent-chat__thinking { animation: none; } .agent-chat__answer-actions button, .assistant-workspace__resize-handle span { transition: none; } }
 </style>

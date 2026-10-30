@@ -1,9 +1,10 @@
+import { throwIfAborted } from './abortSignal.js'
 import { uiText } from '../i18n/index.js'
 import { AuthenticationError } from './authentication.js'
 
 export async function requestDingTalkCode({ corpId, signal, loadSdk = () => import('dingtalk-jsapi') }) {
   if (!corpId?.trim()) throw new AuthenticationError(uiText('尚未配置钉钉企业标识，请设置 VITE_DINGTALK_CORP_ID'))
-  signal?.throwIfAborted()
+  throwIfAborted(signal)
   let dd
   try {
     const module = await loadSdk()
@@ -11,7 +12,7 @@ export async function requestDingTalkCode({ corpId, signal, loadSdk = () => impo
   } catch {
     throw new AuthenticationError(uiText('钉钉组件加载失败，请重试'))
   }
-  signal?.throwIfAborted()
+  throwIfAborted(signal)
   if (!dd.env?.platform || dd.env.platform === 'notInDingTalk') {
     throw new AuthenticationError(uiText('请从钉钉工作台打开知识沉淀应用'))
   }

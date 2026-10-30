@@ -13,9 +13,12 @@ const workspaceReady = ref(false)
 const workspaceVisible = computed(() => state.value === 'ready' && workspaceReady.value)
 watch([state, () => user.value?.userid], () => { workspaceReady.value = false }, { flush: 'sync' })
 function revealWorkspace(userid) {
-  if (state.value === 'ready' && userid === user.value?.userid) workspaceReady.value = true
+  if (state.value === 'ready' && userid === user.value?.userid) {
+    workspaceReady.value = true
+    window.dispatchEvent(new Event('knowledge-workspace-ready'))
+  }
 }
-watch(locale, value => { if (typeof document === 'undefined' || !document.documentElement) return; document.documentElement.lang = value === 'en' ? 'en' : 'zh-CN'; document.title = value === 'en' ? 'Knowledge Hub · Your knowledge workspace' : '知识沉淀 · 企业知识统一入口' }, { immediate: true })
+watch(locale, value => { if (typeof document === 'undefined' || !document.documentElement) return; document.documentElement.lang = value === 'en' ? 'en' : 'zh-CN'; document.title = value === 'en' ? 'Zhigeng · Your knowledge workspace' : '知更 · 企业知识统一入口' }, { immediate: true })
 </script>
 
 <template>

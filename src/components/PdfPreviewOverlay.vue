@@ -224,14 +224,10 @@ onBeforeUnmount(() => { releaseModal(); mobileQuery?.removeEventListener('change
   cursor: pointer;
 }
 
-.pdf-preview__close:hover {
-  color: #fff;
-  background: rgb(43 59 52 / 94%);
-  border-color: #ffffff5c;
-  transform: scale(1.06);
+@media (hover: hover) and (pointer: fine) {
+  .pdf-preview__close:hover { color: #fff; background: rgb(43 59 52 / 94%); border-color: #ffffff5c; transform: scale(1.06); }
 }
 
-.pdf-preview__close:active { transform: scale(0.96); }
 
 .pdf-preview__close:focus-visible {
   outline: 2px solid #aaa0ed;

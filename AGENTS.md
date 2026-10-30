@@ -27,13 +27,13 @@
 ## 后端对接约定
 
 - 开始接口开发前，阅读后端的 [API 导航](../knowledge-accumulation-be/description/api/readme.md)，核对 `app/router/`、`app/schema/` 和实际 OpenAPI。发现文档与实现不一致时先确认差异，不自行猜测字段或协议。
-- 登录、头像与平台目录统一使用 `/knowledge-accumulation/api`，默认 knowledge-accumulation-be 地址为 `http://127.0.0.1:24000`。开发浏览器前缀增加 `/dev`，代理仅移除此段。服务地址与转发集中配置，见[环境与部署](description/platform/deployment.md)。
+- 登录、头像与平台目录生产使用 `/knowledge-accumulation/api`，开发使用 `/dev/knowledge-accumulation/api`，默认开发后端地址为 `http://127.0.0.1:15000`。开发网关和 Vite 均保留 `/dev`，后端直接启动入口提供相同前缀。服务地址与转发集中配置，见[环境与部署](description/platform/deployment.md)。
 - 统一入口负责登录：开发模式用固定 Bearer 凭据无 body 调用 `/auth/login`，生产模式以钉钉 H5 code 调用同一路由，两者均换取随机中央用户 token。`/auth/me` 只验证已有用户 token。确认成功后将原始 token 存入同源 `localStorage.access_token`，业务接口携带 `Authorization: Bearer <access_token>`。不使用旧 `login_code` 或 `secret_key`，不将一次性 code 作为后续凭据。细节见[统一登录](description/platform/authentication.md)及后端[人员登录 API](../knowledge-accumulation-be/description/api/auth.md)。
 - 开发 token 只配置于被忽略的本机环境文件，由开发服务器按需提供，不得使用 `VITE_` 前缀或进入生产构建。钉钉应用密钥只保留在后端；前端只使用公开 CorpId。生产认证失败不回退开发模式。
 - 问答使用后端 exploration 路由，附件使用 resource/attachment，契约见后端 exploration.md 与 resource.md。重新连接只恢复同一 turn 和事件游标，不能重放 POST；调整方向提交 supersedes_turn_id，不能先 cancel。摘要节点不作为用户提问入口，真实公开过程与服务端耗时不能用本地 mock 替代。
 - [平台列表 API](../knowledge-accumulation-be/description/api/platform.md)已接入，返回可见平台代码、名称、Markdown 描述、存活状态及管理人姓名和头像，可包含注册中心自身，不包含管理平台跳转地址。名称、描述与管理人均使用接口值，不追加本地固定平台。入口地址应使用已确认配置，不根据平台代码拼接或猜测；存活状态不等同于网页可访问或用户有权限。
 - 请求与认证处理应集中维护，区分加载、空数据、未登录或登录失效、服务不可用等状态；不能把接口错误显示为正常空结果。
-- 模拟问答仅位于 tests/fixtures，用于布局与旧交互回归；业务页面不得以 mock 回退接口失败。真实后端初始化和联调前置条件见 description/platform/exploration-integration.md。
+- 模拟问答仅位于 tests/fixtures，用于布局、旧交互回归及明确标注示例数据的文档截图；业务页面不得以 mock 回退接口失败。真实后端初始化和联调前置条件见 description/platform/exploration-integration.md。
 
 ---
 
@@ -105,4 +105,4 @@
 
 ## Git 跟踪范围
 
-仓库使用 `.gitignore` 白名单，只开放构建部署所需源码和配置、实际引用的运行资源、项目说明文档，以及必要的 `.gitkeep` 目录占位。测试、模拟数据、IDE 设置、依赖、构建产物、本机凭据和未使用的原始图片留在本地。引入新的运行资源时同步更新白名单；不为没有运行或文档用途的目录添加占位文件。
+仓库使用 `.gitignore` 白名单，只开放构建部署所需源码和配置、实际引用的运行资源、项目说明文档及其实际引用的预览图，以及必要的 `.gitkeep` 目录占位。测试、模拟数据、IDE 设置、依赖、构建产物、本机凭据和未使用的原始图片留在本地。引入新的运行资源或构建配置模块时同步核对 `.gitignore` 与 `.dockerignore` 白名单；文档预览图只开放 Git 跟踪，不进入构建上下文；不为没有运行或文档用途的目录添加占位文件。

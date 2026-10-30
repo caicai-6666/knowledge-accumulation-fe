@@ -1,3 +1,4 @@
+import { throwIfAborted } from './abortSignal.js'
 import { uiText, LocalizedError } from '../i18n/index.js'
 import { KNOWLEDGE_API_BASE_PATH, readAccessToken } from './authentication.js'
 
@@ -28,7 +29,7 @@ export function validatePlatforms(payload) {
 }
 
 export async function fetchPlatforms({ signal, storage = window.localStorage, fetch: fetcher = globalThis.fetch } = {}) {
-  signal?.throwIfAborted()
+  throwIfAborted(signal)
   const token = readAccessToken(storage)
   if (!token) throw new PlatformDirectoryError(uiText('登录状态已失效，请重新登录'), 401)
   const controller = new AbortController()
@@ -44,9 +45,9 @@ export async function fetchPlatforms({ signal, storage = window.localStorage, fe
       if (controller.signal.aborted) throw error
       return null
     })
-    controller.signal.throwIfAborted()
+    throwIfAborted(controller.signal)
     if (!response.ok) {
-      if (response.status === 401 && readAccessToken(storage) !== token) throw new PlatformDirectoryError(uiText('登录状态已更新，请重试'))
+      if (response.status === 401 && readAccessToken(storage) !== token) throw new PlatformDirectoryError(uiText('请求状态已更新，请重试'))
       const message = response.status === 401 ? uiText('登录状态已失效，请重新登录')
         : response.status === 403 ? uiText('暂无查看平台信息的权限')
         : uiText('平台信息暂时无法加载，请稍后重试')
@@ -54,7 +55,7 @@ export async function fetchPlatforms({ signal, storage = window.localStorage, fe
     }
     return validatePlatforms(payload)
   } catch (error) {
-    signal?.throwIfAborted()
+    throwIfAborted(signal)
     if (timedOut) throw new PlatformDirectoryError(uiText('平台信息加载超时，请重试'))
     if (error instanceof TypeError) throw new PlatformDirectoryError(uiText('无法连接平台服务，请重试'))
     throw error

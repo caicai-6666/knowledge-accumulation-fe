@@ -13,6 +13,11 @@ export function waitForWorkspaceReady(root, { signal, timeout = 5000, document =
   requestFrame = callback => requestAnimationFrame(callback), cancelFrame = id => cancelAnimationFrame(id),
 } = {}) {
   if (!root || signal?.aborted) return Promise.resolve(false)
+  function visibleBounds() {
+    const bounds = root.getBoundingClientRect()
+    const page = root.closest?.('.knowledge-page')?.getBoundingClientRect()
+    return { bounds, visible: bounds.width > 0 && bounds.height > 0 && (!page || page.width > 0 && page.height > 0) }
+  }
   return new Promise(resolve => {
     let finished = false, frame = 0, previous = '', stableFrames = 0
     const cleanup = []
@@ -26,8 +31,8 @@ export function waitForWorkspaceReady(root, { signal, timeout = 5000, document =
       resolve(ready)
     }
     const abort = () => finish(false)
-    // 静态资源不可用也不能造成无限进入动画，超时保留当前可用布局。
-    const timer = setTimeout(() => finish(true), timeout)
+    // 资源超时可继续展示已有布局；零尺寸不能作为准备完成，否则会隐藏加载页后白屏。
+    const timer = setTimeout(() => finish(visibleBounds().visible), timeout)
     signal?.addEventListener('abort', abort, { once: true })
     const images = [...root.querySelectorAll('img')].filter(image => isStaticImage(image, document))
     const pending = images.map(image => {
@@ -44,9 +49,9 @@ export function waitForWorkspaceReady(root, { signal, timeout = 5000, document =
     pending.push(Promise.resolve(document?.fonts?.ready).catch(() => {}))
     function measure() {
       if (finished) return
-      const bounds = root.getBoundingClientRect()
+      const { bounds, visible } = visibleBounds()
       const current = [bounds.x, bounds.y, bounds.width, bounds.height].map(value => Math.round(value * 100)).join(',')
-      stableFrames = current === previous && bounds.width > 0 && bounds.height > 0 ? stableFrames + 1 : 0
+      stableFrames = current === previous && visible ? stableFrames + 1 : 0
       previous = current
       if (stableFrames >= 2) { finish(true); return }
       frame = requestFrame(measure)

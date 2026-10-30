@@ -15,6 +15,10 @@ export function setLanguage(value) {
 }
 const count = (value, singular, plural = `${singular}s`) => `${value} ${Number(value) === 1 ? singular : plural}`
 const plurals = {
+  '已选择 {value0} 棵问答树': p => `${count(p.value0, 'conversation')} selected`,
+  '删除选中的 {value0} 棵问答树？': p => `Delete ${count(p.value0, 'conversation')}?`,
+  '已删除 {value0} 棵问答树': p => `Deleted ${count(p.value0, 'conversation')}`,
+  '{value0}年{value1}月': p => new Intl.DateTimeFormat('en', { year: 'numeric', month: 'long', timeZone: 'UTC' }).format(new Date(Date.UTC(Number(p.value0), Number(p.value1) - 1, 1))),
   '{value0} 个任务': p => count(p.value0, 'task'),
   '{value0} 条分支': p => count(p.value0, 'branch', 'branches'),
   '{value0} 个会话': p => count(p.value0, 'exploration'),

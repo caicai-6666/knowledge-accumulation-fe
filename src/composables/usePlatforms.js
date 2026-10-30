@@ -23,11 +23,15 @@ export function usePlatforms(active, user, { loadPlatforms = fetchPlatforms, onA
       needsRefresh = false
     } catch (failure) {
       if (signal.aborted) return
+      if (failure.status === 401) {
+        error.value = ''; status.value = 'idle'; needsRefresh = true
+        onAuthenticationExpired()
+        return
+      }
       platforms.value = []
       error.value = failure.message ? failure : uiText('平台信息暂时无法加载，请重试')
       status.value = 'error'
       needsRefresh = true
-      if (failure.status === 401) onAuthenticationExpired()
     }
   }
 

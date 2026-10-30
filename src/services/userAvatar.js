@@ -1,3 +1,4 @@
+import { throwIfAborted } from './abortSignal.js'
 import { avatarImageFormat } from './avatarDiagnostics.js'
 import { uiText } from '../i18n/index.js'
 import { AuthenticationError, KNOWLEDGE_API_BASE_PATH, readAccessToken } from './authentication.js'
@@ -7,7 +8,7 @@ export async function fetchUserAvatar(filename, { signal, storage = window.local
   report({ requestStage: 'validating', filenameValid: typeof filename === 'string' && /^[a-f0-9]{32}\.webp$/.test(filename) })
   // 只接受后端身份中的文件名，禁止任意地址或路径接收 Bearer 凭据。
   if (typeof filename !== 'string' || !/^[a-f0-9]{32}\.webp$/.test(filename)) return null
-  signal?.throwIfAborted()
+  throwIfAborted(signal)
   const token = readAccessToken(storage)
   report({ tokenAvailable: Boolean(token) })
   if (!token) throw new AuthenticationError(uiText('缺少登录凭据'), 401)
@@ -31,7 +32,7 @@ export async function fetchUserAvatar(filename, { signal, storage = window.local
     const blob = await response.blob()
     const imageFormat = await avatarImageFormat(blob)
     report({ requestStage: 'body-read', bytes: blob.size, blobType: blob.type, imageFormat })
-    controller.signal.throwIfAborted()
+    throwIfAborted(controller.signal)
     if (!blob.size) throw new AuthenticationError(uiText('头像内容为空'))
     if (!types[imageFormat]) throw new AuthenticationError(uiText('头像响应格式错误'))
     // 移动客户端可能返回 PNG，或改写响应 MIME；按实际文件签名声明 Blob 类型，不改写图片字节。

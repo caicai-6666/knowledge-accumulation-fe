@@ -2,7 +2,7 @@
 export function createStreamText({ initial = '', onChange, requestFrame, cancelFrame }) {
   let shown = initial, target = initial
   let units = [], offset = 0, frame = null, previousTime = null, remainingTime = 0
-  const segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
+  const segmenter = typeof Intl !== 'undefined' && typeof Intl.Segmenter === 'function' ? new Intl.Segmenter(undefined, { granularity: 'grapheme' }) : null
   function stop() {
     if (frame !== null) cancelFrame(frame)
     frame = null
@@ -25,7 +25,7 @@ export function createStreamText({ initial = '', onChange, requestFrame, cancelF
   function update(text, { immediate = false } = {}) {
     if (text === target && !immediate) return
     target = text
-    if (immediate || !text.startsWith(shown)) {
+    if (immediate || !segmenter || !text.startsWith(shown)) {
       stop()
       shown = text
       units = []; offset = 0

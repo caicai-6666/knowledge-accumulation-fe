@@ -5,7 +5,7 @@ import { getContextPath, layoutQuestionTree } from '../models/questionTree.js'
 import { clampTreeZoom, getAnchoredTreeScroll, getTreeCanvasBounds, MAX_TREE_ZOOM, MIN_TREE_ZOOM } from '../models/treeViewport.js'
 
 const props = defineProps({ tree: { type: Object, required: true }, selectedId: { type: String, default: null }, contextIds: { type: Array, required: true }, active: Boolean, recenterOnActivate: Boolean, touchNavigation: Boolean })
-const emit = defineEmits(['select', 'main-end'])
+const emit = defineEmits(['select'])
 const collapsedByTree = ref({})
 const collapsedIds = computed(() => new Set(collapsedByTree.value[props.tree.id] || []))
 const layout = computed(() => layoutQuestionTree(props.tree, collapsedIds.value))
@@ -185,11 +185,6 @@ function toggleCollapsed(node) {
 }
 function expandAll() {
   collapsedByTree.value[props.tree.id] = []
-  void centerSelected()
-}
-async function returnToMainEnd() {
-  emit('main-end')
-  await nextTick()
   void centerSelected()
 }
 async function applyZoom(value, anchor, animate = true, origin = null) {
@@ -377,7 +372,7 @@ onBeforeUnmount(pauseViewport)
   <section class="question-tree" :class="{ 'is-paused': !active }" aria-labelledby="question-tree-title">
     <header class="question-tree__header">
       <div><h2 id="question-tree-title">{{ t('问答树') }}</h2><p>{{ t('{value0} 个任务', { value0: tree.nodes.filter(node => node.kind !== 'summary').length }) }}<span>·</span> {{ t('{value0} 条分支', { value0: branches.length }) }}<template v-if="hiddenCount"><span>·</span>{{ t('已收起 {value0} 个', { value0: hiddenCount }) }}</template></p></div>
-      <div class="question-tree__header-actions"><button v-if="collapsedIds.size" type="button" class="question-tree__main-end" @click="expandAll">{{ t('全部展开') }}</button><button type="button" class="question-tree__main-end" :disabled="!tree.mainLeafId" @click="returnToMainEnd">{{ t('主干末尾') }}<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3v13m-4-4 4 4 4-4" /></svg></button></div>
+      <div v-if="collapsedIds.size" class="question-tree__header-actions"><button type="button" class="question-tree__expand-all" @click="expandAll">{{ t('全部展开') }}</button></div>
     </header>
     <div class="question-tree__legend"><span><i class="is-main"></i>{{ t('主干') }}</span><span><i class="is-branch"></i>{{ t('分支') }}</span><span><i class="is-context"></i>{{ t('当前上下文') }}</span></div>
 
@@ -421,15 +416,15 @@ onBeforeUnmount(pauseViewport)
 
 <style scoped>
 .question-tree__node:disabled { cursor: default; opacity: .65; border-style: dashed; }
-.question-tree { display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; border-left: 1px solid #668b7017; background: linear-gradient(145deg, #f2f7f47a, #f6f5fb59); }
+.question-tree { display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; border-left: 1px solid #668b7017; background: var(--question-tree-surface); }
 .question-tree__header { display: flex; align-items: center; justify-content: space-between; flex: none; gap: 16px; padding: 26px 28px 20px; }
 .question-tree__header h2 { margin: 0 0 9px; color: #3d5547; font-size: 15px; font-weight: 600; }
 .question-tree__header p { margin: 0; color: #95a198; font-size: 11px; }
 .question-tree__header p > span { margin: 0 6px; }
 .question-tree__header-actions { display: flex; flex: none; flex-wrap: wrap; justify-content: end; gap: 7px; }
 button { font: inherit; cursor: pointer; }
-.question-tree__main-end { display: flex; align-items: center; gap: 7px; padding: 8px 10px; color: #7d8c83; background: #ffffff95; border: 1px solid #fff; border-radius: 10px; font-size: 11px; }
-.question-tree__main-end svg, .question-tree__tools svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
+.question-tree__expand-all { display: flex; align-items: center; gap: 7px; padding: 8px 10px; color: #7d8c83; background: #ffffff95; border: 1px solid #fff; border-radius: 10px; font-size: 11px; }
+.question-tree__tools svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
 .question-tree__legend { display: flex; flex-wrap: wrap; gap: 16px; flex: none; padding: 0 28px 18px; color: #8b988f; font-size: 10px; }
 .question-tree__legend > span { display: inline-flex; align-items: center; gap: 6px; }
 .question-tree__legend i { width: 6px; height: 6px; border-radius: 50%; }
@@ -480,7 +475,7 @@ button { font: inherit; cursor: pointer; }
 .question-tree__tools input { width: clamp(70px, 8vw, 100px); margin: 0 4px; accent-color: #749582; cursor: pointer; touch-action: none; }
 .question-tree__tools input:disabled { cursor: default; opacity: .4; }
 .question-tree__tools button.question-tree__overview { width: auto; padding: 0 7px; font-size: 10px; }
-.question-tree__tools button:hover:not(:disabled) { background: #e6eee8; }
+@media (hover: hover) and (pointer: fine) { .question-tree__tools button:hover:not(:disabled) { background: #e6eee8; } }
 button:disabled { cursor: default; opacity: .4; }
 button:focus-visible, .question-tree__viewport:focus-visible, .question-tree__tools input:focus-visible { outline: 2px solid #8b81b7; outline-offset: -2px; }
 .question-tree__empty { display: flex; flex: 1; flex-direction: column; align-items: center; justify-content: center; gap: 12px; min-height: 230px; color: #94a39a; padding: 24px; }

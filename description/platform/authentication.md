@@ -4,23 +4,39 @@
 
 ## 模式与配置
 
-默认 `npm run dev` 使用开发登录，生产构建使用钉钉登录。`VITE_AUTH_MODE` 可显式选择 `development` 或 `production`，必须与后端 `APP_ENV` 一致；开发服务器可选择生产模式进行钉钉联调，构建和预览仅允许生产模式。模式不通过公开后端接口获取，也不在生产失败时回退开发身份。
+运行方式与登录方式独立。`npm run dev` 启动带热更新和 `/dev` 前缀的开发服务器，`npm run build` 生成不带 `/dev` 的部署产物，`npm run preview` 预览部署产物。`VITE_AUTH_MODE=production` 表示钉钉免登，`development` 表示固定开发凭据，与后端 `APP_ENV` 的认证选项保持一致；该配置不决定资源或 API 的路径。未显式配置时，开发服务器默认固定凭据登录，构建和预览默认且仅允许钉钉登录；当前 `.env.example` 显式推荐钉钉登录。登录方式不通过公开后端接口获取，钉钉失败不回退开发身份。
 
 | 配置 | 用途 |
 | --- | --- |
 | `KNOWLEDGE_DEVELOPER_LOGIN_CREDENTIAL` | 仅开发服务器使用，固定登录凭据，值与 knowledge-accumulation-be 的 `AUTH_DEVELOPER_ACCESS_TOKEN` 一致；不是用户 token |
 | `VITE_DINGTALK_CORP_ID` | 独立 Vite/Docker 构建使用的钉钉企业公开 CorpId，与后端企业配置一致；Compose 从部署目录 `DINGTALK_CORP_ID` 映射此值 |
-| `VITE_AUTH_MODE` | 可选模式覆盖；通常使用默认值即可 |
+| `VITE_AUTH_MODE` | 登录方式：`production` 为钉钉免登，`development` 为固定开发凭据，与是否运行开发服务器无关 |
 
 独立开发时复制根目录 `.env.example` 到被忽略的 `.env.local` 后填写本机值，修改后重启服务。后端登录接口随应用提供，需具备其文档要求的中间件平台会话及中央登录授权；依赖故障按接口错误处理，不伪造登录成功。开发凭据禁止使用 `VITE_` 前缀；钉钉 AppKey、AppSecret 和应用 accessToken 只配置在后端。`VITE_` 配置会成为公开的浏览器构建内容。
 
 Compose 部署只在 `knowledge-accumulation-deploy/.env` 维护公开的 `DINGTALK_CORP_ID`，同时供后端环境和前端构建参数使用；无需在前端实际 `.env` 重复配置。修改后重建前端镜像，并更新后端环境。部署映射见[Docker 与 Compose](deployment.md#docker-与-compose)。
 
+## 开发服务器使用钉钉登录
+
+前端 `.env.local`（或仅用于开发服务器的 `.env.development.local`）配置：
+
+```dotenv
+VITE_AUTH_MODE=production
+VITE_DINGTALK_CORP_ID=你的企业CorpId
+KNOWLEDGE_BACKEND_URL=http://127.0.0.1:15000
+```
+
+在前端目录执行 `npm run dev`，继续使用 `/dev/knowledge-accumulation/` 入口和热更新，不执行 build 或 preview。钉钉应用中配置的 HTTPS 开发入口应转发到本机 `15080`，并保留 `/dev`。普通浏览器没有有效用户 token 时不能完成钉钉免登。
+
+后端 `.env` 设置 `APP_ENV=production`，填写同一钉钉应用的 CorpId、AppKey 和 AppSecret，然后在后端 Python 环境及项目目录执行 `python -m app.main`。该本地启动入口设置 `/dev` 路径，与 Vite 代理一致；`APP_ENV=production` 在后端选择钉钉认证，不会取消该入口的开发路径。不要改动其他后端配置来复制前端配置。
+
+修改登录配置后重启对应服务。若后端改用不带开发前缀的 ASGI 启动命令，前端仍发送 `/dev/knowledge-accumulation/api` 时会返回 404；此时应恢复后端本地开发入口，而不是将前端改为生产构建。后端启动条件见其[运行说明](../../../knowledge-accumulation-be/description/capability/application/docker.md)。
+
 ## 登录流程
 
 进入时先读取 `localStorage.access_token`，存在合法字符串时调用 `/auth/me` 验证。成功后展示工作台与当前姓名；401 清理对应旧凭据并重新登录；网络、超时、503 等错误保留已存 token，展示错误和手动重试。回到窗口时重新验证，其他标签页更新共享键时取消旧请求并验证新值。
 
-“正在进入”与“暂时无法进入”共用同一个紧凑、固定尺寸的状态框，切换时标题及说明先淡出再淡入；标题置于上方，加载动画在其下方内容区域水平、垂直居中；加载时不展示连接说明或占位重试按钮，失败时在同一内容区域展示错误说明与重试入口，卡片外框不重建、不缩放或闪烁。进入或离开工作台仍通过透明度过渡衔接，工作台通过 `KeepAlive` 保留问答和平台选择，认证失败时停用，恢复同用户身份时激活；更换 userid 会淘汰旧工作台及其子缓存。系统减少动画偏好下即时切换。
+“正在进入”与“暂时无法进入”共用同一个紧凑、固定尺寸的状态框，标题与加载动画保留。进入工作台后，业务接口返回 401 时只交给统一认证重新确认身份，不再在问答错误条、连接提示、平台列表、重命名、删除或附件预览中展示“登录状态已失效”等提示；不自动重放修改和任务提交。其他服务错误仍显示并提供重试。进入或离开工作台通过透明度过渡衔接，工作台通过 `KeepAlive` 保留问答和平台选择，认证失败时停用，恢复同用户身份时激活；更换 userid 会淘汰旧工作台及其子缓存。系统减少动画偏好下即时切换。
 
 “重新尝试”采用用户提供的 Uiverse.io / ke1221 浅灰浮雕按钮样式，按下时转为内凹阴影，与管理平台入口按钮保持一致。
 
@@ -32,7 +48,7 @@ Compose 部署只在 `knowledge-accumulation-deploy/.env` 维护公开的 `DINGT
 
 ## 用户头像
 
-工作台右上角在姓名旁显示圆形头像。`UserAvatar.vue` 从当前身份的 `avatar_url` 取得文件名，通过[头像读取接口](../../../knowledge-accumulation-be/description/api/resource.md#读取头像)携带共享 Bearer token 请求图片，再创建本地 Blob URL 显示。源接口返回 WebP；实机诊断确认移动请求曾返回 HTTP 200 / image/png，前端现在接受 WebP、PNG、JPEG、GIF，检查实际文件签名并按实际格式声明 Blob MIME，避免仅因传输链路改变图片类型就丢弃有效头像；拒绝 HTML、SVG 和未知文件类型；开发沿用 `/dev` 代理前缀，token 不放入图片 URL。
+桌面工作台右上角、移动端左侧问答列表底部在姓名旁显示圆形头像。`UserAvatar.vue` 从当前身份的 `avatar_url` 取得文件名，通过[头像读取接口](../../../knowledge-accumulation-be/description/api/resource.md#读取头像)携带共享 Bearer token 请求图片，再创建本地 Blob URL 显示。源接口返回 WebP；实机诊断确认移动请求曾返回 HTTP 200 / image/png，前端现在接受 WebP、PNG、JPEG、GIF，检查实际文件签名并按实际格式声明 Blob MIME，避免仅因传输链路改变图片类型就丢弃有效头像；拒绝 HTML、SVG 和未知文件类型；开发沿用 `/dev` 代理前缀，token 不放入图片 URL。
 
 无头像、文件不存在、图片加载失败、网络异常或单次 15 秒超时时使用默认人像，不阻塞工作台，不修改共享凭据。图片通过 load 事件和有效固有尺寸确认可显示，不在 load 后额外调用 decode 来决定是否丢弃，避免额外解码步骤误伤已能显示的图片。网络异常、408、429 或 5xx 在 800ms 后仅自动重试一次；401 不拿旧 token 自动重试、不触发额外登录。同一身份重新验证后，仅失败头像重新请求，已正常显示的头像不重复下载或闪烁。身份更新时取消旧请求、待执行重试并加载新头像，过期响应不覆盖新身份；替换、加载失败和组件卸载时释放 Blob URL。
 
@@ -51,8 +67,8 @@ Compose 部署只在 `knowledge-accumulation-deploy/.env` 维护公开的 `DINGT
 
 统一入口确认写入成功后才展示业务界面。各管理平台每次请求读取最新值，并由服务端验证身份与平台权限；文件访问等级 `platform_permissions` 不代表平台管理权限。`registry-fe` 已采用此共享键；其他平台仍需按此约定接入，不能假设它们原有的会话存储会自动兼容。
 
-共享要求协议、域名、端口完全一致，例如 `https://pheno.szkl.com/dev/knowledge-accumulation/` 与同域其他路径。`localhost:24080` 与 `localhost:23080` 不共享；不同域名也不共享。跳转地址和 URL 参数中不携带 token。注册中心入口已按指定同源路径开放，具体地址与其他平台状态见[管理平台入口](../features/platforms.md#布局与交互)。
+共享要求协议、域名、端口完全一致，例如 `https://talent.szkl.com/dev/knowledge-accumulation/` 与同域其他路径。`localhost:15080` 与 `localhost:16080` 不共享；不同域名也不共享。跳转地址和 URL 参数中不携带 token。注册中心入口已按指定同源路径开放，具体地址与其他平台状态见[管理平台入口](../features/platforms.md#布局与交互)。
 
 ## 验证
 
-`npm test` 覆盖两种模式、刷新复用、共享键、401/503、迟到响应、取消、存储受限、一次性 code 重试、JSAPI 及开发路由。真实开发联调应覆盖无 body 的 `/auth/login` 交换及返回 token 的 `/auth/me` 验证，生产钉钉全链路需要企业配置与钉钉客户端；模拟测试不代表真实生产登录已通过。
+认证改动应验证两种模式、刷新复用、共享键、401/503、迟到响应、取消、存储受限、一次性 code 重试、JSAPI 及开发路由。`npm test` 仅执行当前本地测试集，现有旧 WebView 兼容用例包含钉钉认证兼容检查，不代表上述认证场景的完整覆盖。真实开发联调应覆盖无 body 的 `/auth/login` 交换及返回 token 的 `/auth/me` 验证，生产钉钉全链路需要企业配置与钉钉客户端；模拟测试不代表真实生产登录已通过。

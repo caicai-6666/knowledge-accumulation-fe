@@ -6,6 +6,7 @@
 
 | 文档 | 阅读目的 |
 | --- | --- |
+| [应用介绍与预览](../README.md) | 查看应用截图、主要能力与快速启动入口 |
 | [项目总览](project.md) | 理解项目目标、系统关系、当前实现、运行方式和待确认事项 |
 | [开发规范](../AGENTS.md) | 开始开发前确认代码、后端对接、验证和协作约定 |
 | [文档撰写风格手册](documentation.md) | 新建或修改文档前确认命名、结构、引用与维护规则 |
@@ -16,7 +17,7 @@
 
 | 文档 | 阅读目的 |
 | --- | --- |
-| [智能体问答与问答树](features/assistant.md) | 查看问答布局、上下文路径、主干与分支规则、接口边界及验证方式 |
+| [智能体问答与问答树](features/assistant.md) | 查看问答树、公开过程、移动端搜索、多选与置顶、接口边界及验证方式 |
 | [管理平台入口](features/platforms.md) | 查看平台选择、详情、空状态与当前数据边界 |
 
 ## 前端基础能力
@@ -26,7 +27,7 @@
 | [统一登录与共享凭据](platform/authentication.md) | 配置开发与生产认证，了解 localStorage 交接与失败策略 |
 | [环境与部署](platform/deployment.md) | 配置资源前缀、开发映射、API 代理和生产转发 |
 | [界面语言](platform/language.md) | 查看中英文切换、浏览器记忆及前后端文案边界 |
-| [问答联调与初始化](platform/exploration-integration.md) | 查看后端运行条件、首次建表、重启影响及验收状态 |
+| [问答联调与初始化](platform/exploration-integration.md) | 查看后端运行条件、首次建表、重启影响及历史验收记录 |
 
 ## 后端参考
 
@@ -46,6 +47,6 @@
 
 ## 文档组织与维护
 
-当前 `description/` 顶层保留 `project.md`、`readme.md` 和 `documentation.md`；跨业务的认证与部署文档位于 `platform/`，用户业务文档位于 `features/`。
+当前 `description/` 顶层保留 `project.md`、`readme.md` 和 `documentation.md`；跨业务的认证与部署文档位于 `platform/`，用户业务文档位于 `features/`。`assets/` 仅存放 README 实际引用的应用预览图，不进入生产镜像。
 
 新增正式文档时，在本页补充阅读入口；移动、重命名或删除文档时，同步修正导航和引用。项目范围与整体状态维护在项目总览，开发规则维护在 `AGENTS.md`，文档规则维护在风格手册，各专题只记录自身职责范围内的内容。

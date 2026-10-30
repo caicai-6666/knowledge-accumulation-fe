@@ -12,15 +12,14 @@ const rootRef = ref(null)
 const canvasRef = ref(null)
 const ready = ref(false)
 const reducedMotion = ref(false)
+const pageHidden = ref(false)
 
 let worker = null
 let resizeObserver = null
-let intersectionObserver = null
 let reducedMotionQuery = null
 let pointerFrame = 0
 let pendingPointer = null
 let pointerBlocked = false
-let visible = true
 
 const pointerListenerOptions = {
   passive: true,
@@ -49,9 +48,10 @@ function getSize() {
 }
 
 function updateActiveState() {
+  pageHidden.value = document.hidden
   postMessage({
     type: 'set-active',
-    active: visible && !document.hidden && !props.paused,
+    active: !pageHidden.value && !props.paused,
   })
 }
 
@@ -140,6 +140,7 @@ onMounted(() => {
       type: 'module',
     })
 
+    pageHidden.value = document.hidden
     worker.addEventListener('error', stopWorker)
     const offscreenCanvas = canvas.transferControlToOffscreen()
     worker.postMessage(
@@ -173,12 +174,6 @@ onMounted(() => {
   })
   resizeObserver.observe(rootRef.value)
 
-  intersectionObserver = new IntersectionObserver(([entry]) => {
-    visible = entry?.isIntersecting ?? true
-    updateActiveState()
-  })
-  intersectionObserver.observe(rootRef.value)
-
   window.addEventListener('pointermove', handlePointerMove, pointerListenerOptions)
   window.addEventListener('pointerdown', handlePointerMove, pointerListenerOptions)
   window.addEventListener('pointerout', handlePointerLeave, pointerListenerOptions)
@@ -191,7 +186,6 @@ watch(() => props.paused, updateActiveState)
 
 onBeforeUnmount(() => {
   resizeObserver?.disconnect()
-  intersectionObserver?.disconnect()
   window.removeEventListener('pointermove', handlePointerMove, pointerListenerOptions)
   window.removeEventListener('pointerdown', handlePointerMove, pointerListenerOptions)
   window.removeEventListener('pointerout', handlePointerLeave, pointerListenerOptions)
@@ -211,7 +205,7 @@ onBeforeUnmount(() => {
   <div
     ref="rootRef"
     class="molecular-field"
-    :data-animation-state="!ready ? 'static' : paused || reducedMotion ? 'paused' : 'running'"
+    :data-animation-state="!ready ? 'static' : paused || reducedMotion || pageHidden ? 'paused' : 'running'"
     aria-hidden="true"
   >
     <canvas

@@ -32,7 +32,7 @@ function sheetBox(number) {
 function currentAnchor(point) {
   const scroll = { left: viewport.value.scrollLeft, top: viewport.value.scrollTop }
   const target = scroll.top + point.y
-  const number = pages.value.find(item => { const box = sheetBox(item.number); return box && box.top + box.height >= target })?.number || pages.value.at(-1)?.number
+  const number = pages.value.find(item => { const box = sheetBox(item.number); return box && box.top + box.height >= target })?.number || pages.value[pages.value.length - 1]?.number
   const box = sheetBox(number)
   return box ? pdfAnchor(box, scroll, point) : null
 }

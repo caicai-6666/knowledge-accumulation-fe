@@ -1,3 +1,4 @@
+import { parseTreeUpdatedAt } from './treeDateGroups.js'
 import { t, uiText } from '../i18n/index.js'
 import { ExplorationError, isFileId, isTreeId } from '../services/explorationApi.js'
 
@@ -31,7 +32,7 @@ function settleProcess(node, status = 'complete') {
   for (const step of node.process) if (step.status === 'generating') step.status = status
 }
 function applyStatus(node, data) {
-  if (!Object.hasOwn(statuses, data.status) || typeof data.can_interrupt !== 'boolean') invalid()
+  if (!Object.prototype.hasOwnProperty.call(statuses, data.status) || typeof data.can_interrupt !== 'boolean') invalid()
   node.turnStatus = data.status
   node.status = statuses[data.status]
   node.canInterrupt = data.can_interrupt && !TERMINAL_TURNS.has(data.status)
@@ -68,7 +69,7 @@ function applyMessage(node, event, data, { reveal = false } = {}) {
   }
 }
 function applyProgress(node, data, id) {
-  if (!['thinking', 'online-search', 'external-expert', 'local-search'].includes(data.type) || !validText(data.message) || !data.message.trim()) invalid()
+  if (!['thinking', 'online-search', 'external-expert', 'local-search', 'a2a', 'boardcast'].includes(data.type) || !validText(data.message) || !data.message.trim()) invalid()
   settleProcess(node)
   node.process.push({ id, kind: 'progress', type: data.type, label: data.message, content: '', status: node.status === 'generating' ? 'generating' : 'complete' })
 }
@@ -105,7 +106,7 @@ export function applyTurnSnapshot(node, snapshot) {
   node.lastSequence = String(snapshot.last_sequence)
 }
 export function normalizeExplorationTree(payload) {
-  if (!payload || !isTreeId(payload.id) || !validText(payload.name) || payload.kind !== 'exploration' || !Array.isArray(payload.nodes)) invalid()
+  if (!payload || !isTreeId(payload.id) || !validText(payload.name) || payload.kind !== 'exploration' || parseTreeUpdatedAt(payload.updated_at) === null || !Array.isArray(payload.nodes)) invalid()
   const raw = [...payload.nodes].sort((a, b) => a.sequence - b.sequence)
   const ids = new Set(raw.map(node => node.id))
   if (ids.size !== raw.length || raw.some(node => !isTreeId(node.id) || node.parent_id !== null && !ids.has(node.parent_id) || !['task', 'summary'].includes(node.kind) || !['main', 'branch'].includes(node.path_type) || !['generating', 'complete', 'cancelled', 'superseded', 'failed'].includes(node.status) || !Number.isSafeInteger(node.sequence) || !Array.isArray(node.children_ids) || node.children_ids.some(id => !ids.has(id)))) invalid()
@@ -144,5 +145,5 @@ export function normalizeExplorationTree(payload) {
   }
   const roots = nodes.filter(node => node.parentId === null)
   if (nodes.length && (roots.length !== 1 || roots[0].id !== payload.root_id) || !nodes.length && (payload.root_id !== null || payload.main_leaf_id !== null)) invalid()
-  return { id: payload.id, title: payload.name, mainLeafId: payload.main_leaf_id, nodes, loaded: true, revision: payload.revision }
+  return { id: payload.id, title: payload.name, updatedAt: payload.updated_at, mainLeafId: payload.main_leaf_id, nodes, loaded: true, revision: payload.revision }
 }

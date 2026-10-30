@@ -4,37 +4,41 @@
 
 ## 开发映射
 
-开发服务监听 `0.0.0.0:24080`，端口占用时失败，不自动换端口。
+开发服务监听 `0.0.0.0:15080`，端口占用时失败，不自动换端口。
 
 | 访问方式 | 地址 |
 | --- | --- |
-| 本机 | `http://localhost:24080/dev/knowledge-accumulation/` |
-| 映射服务器 | `https://pheno.szkl.com/dev/knowledge-accumulation/` |
+| 本机 | `http://localhost:15080/dev/knowledge-accumulation/` |
+| 映射服务器 | `https://talent.szkl.com/dev/knowledge-accumulation/` |
 
-Vite `base` 为 `/dev/knowledge-accumulation/`，脚本、样式、图片、依赖与热更新连接均沿此前缀。开发网关保留完整 `/dev/knowledge-accumulation/` 路径，将请求原样转发到开发主机 24080，保留查询参数并支持 WebSocket 升级。HTTPS 在网关终止，内部使用 HTTP。
+Vite `base` 为 `/dev/knowledge-accumulation/`，脚本、样式、图片、依赖与热更新连接均沿此前缀。开发网关保留完整 `/dev/knowledge-accumulation/` 路径，经服务器 FRP 端口 `25080` 将请求原样转发到开发主机 `15080`，保留查询参数并支持 WebSocket 升级。HTTPS 在网关终止，内部使用 HTTP。
 
 `config/developmentMapping.js` 对带 `/dev` 的 HTTP 与 WebSocket 请求直接透传，仅对旧网关移除前缀后的请求补回 `/dev`，不会重复添加前缀。依赖缓存使用项目根目录的 `cache/vite`，避免隐藏目录映射限制，也避免 npm 将 `node_modules` 下的额外缓存目录当作无用依赖清理。钉钉 SDK 明确加入依赖预构建列表；无需额外开放域名根目录 `/src/` 或 `/@vite/`。
 
 ## 移动 WebView 启动与资源类型
 
-首屏通过独立 `src/bootstrap.js` 动态加载业务入口。模块加载与认证共用 `src/authentication-status.css` 的进入卡片样式，使用同样的“正在进入”与转圈，不显示额外的双语加载页；Vue 接管后卡片不重复淡入。初始化失败或超过 20 秒时，在同样的卡片内显示“暂时无法进入”、重新尝试和可展开的加载信息，不依赖 Vue 成功启动。加载信息仅留在本机页面，包含异常摘要、可获取的失败资源路径/HTTP 状态、浏览器及视口能力；不上传日志，不读取 token，资源 URL 的查询和 Hash 不展示。
+首屏通过独立 `src/bootstrap.js` 动态加载业务入口。模块加载与认证共用 `src/authentication-status.css` 的进入卡片样式，使用同样的“正在进入”与转圈，不显示额外的双语加载页；Vue 接管后卡片不重复淡入。模块加载或 Vue 首屏组件初始化失败、或模块加载超过时限（开发 60 秒、部署构建 20 秒）时，显示错误卡片“暂时无法进入”、重新尝试和可展开的加载信息，不依赖 Vue 成功启动。Vue 首屏组件异常会转交独立入口显示初始化失败信息；错误卡片位于应用挂载容器外，避免 Vue 清空容器后留下白屏。模块计时从全屏入口准备结束后开始，不与全屏准备共用预算；超时后资源迟到加载成功会移除独立错误遮罩，将界面交还 Vue 的认证或工作台流程，真正的初始化异常不会自动隐藏。工作台成功显示后不再用启动卡片覆盖业务界面。加载信息仅留在本机页面，包含异常摘要、可获取的失败资源路径/HTTP 状态、浏览器及视口能力；不上传日志，不读取 token，资源 URL 的查询和 Hash 不展示。
 
 认证成功后先挂载不可见、不可交互的工作台，以真实尺寸完成移动视口和内容布局。`workspaceReady.js` 仅等待首屏已经挂载的同源静态图片（或内联图片）、文档字体，以及连续两帧尺寸稳定；准备完成再淡入工作台，等待期间沿用进入卡片。模块与样式由业务入口加载链保证。整体等待最多 5 秒，静态图片失败不制造永久加载。头像 Blob、鉴权图片、外站图标、平台目录、树列表、附件与 SSE 均不纳入进入条件，首次失败即可采用各自默认状态，后续重试在后台进行。离开工作台或切换身份时取消旧等待，旧用户的完成通知不能揭开新用户页面。
 
 明确的模块下载错误（例如 `TypeError: Importing a module script failed`）自动更换文档一次，不在已失败的模块缓存中重复 import。恢复地址增加临时 `ka_boot_retry`，保留其余参数和 Hash；成功后清理临时参数与恢复标记。sessionStorage 按页面路径记录两分钟内的恢复尝试，再次失败不自动循环，改为卡片内手动重试；存储受限时直接提供手动重试。代码执行异常、认证错误不触发此恢复。此措施用于短暂下载故障，不能代替排查持续的服务或网关问题。
 
-开发服务器显式预构建 Vue、Markdown、钉钉 SDK 与 PDF 引擎并关闭运行时依赖发现，避免首访发现新依赖后重新优化导致并行请求版本失效。开发响应设置 `Cache-Control: no-store`，防止客户端预加载旧源码后继续引用已失效的依赖版本；这不改变生产哈希资源的长期缓存与公共图标缓存。只读核对发现过期依赖 URL 返回 504、当前完整模块链 82 项为正常 JavaScript；尚未获取报错手机的具体失败 URL，不能据此断言每次首访错误都由同一旧缓存引起。自动恢复与新响应头仍需该客户端实机复核。
+开发服务器显式预构建 Vue、Markdown、钉钉 SDK 与 PDF 引擎并关闭运行时依赖发现，避免首访发现新依赖后重新优化导致并行请求版本失效。开发服务器沿用 Vite 的分层 HTTP 缓存：HTML 与源码使用 `no-cache` 和 ETag，允许存储但每次校验版本，未修改返回 304；带版本号的预构建依赖使用 `max-age=31536000, immutable`，再次进入可复用浏览器缓存。依赖重新优化后通过新版本 URL 更新，不能将源码设为长期免校验缓存。登录、业务接口及开发凭据路由保持 `no-store`，图标 Service Worker 不参与脚本缓存；生产哈希资源的缓存策略保持不变。首次访问或缓存被客户端清除时仍需下载，缓存不会减少开发源码的首次请求链。只读核对发现过期依赖 URL 返回 504、当前完整模块链 82 项为正常 JavaScript；尚未获取报错手机的具体失败 URL，不能据此断言每次首访错误都由同一旧缓存引起。自动恢复与新响应头仍需该客户端实机复核。
 
-图片使用 `new URL(..., import.meta.url).href` 提供给图片元素，避免开发模式将图片路径作为 `?import` JavaScript 模块请求。钉钉移动端曾报告脚本收到 `image/png` 导致拒绝执行；同 UA 的服务端依赖检查不能复现，尚不能仅凭该报错判定是网关、客户端图片处理还是缓存。生产构建仍由 Vite 转换为带哈希资源或内联图片，不影响图片缓存。
+图片（包括新增的问答树图标 `tree.webp`）使用 `new URL(..., import.meta.url).href` 提供给图片元素，避免开发模式将图片路径作为 `?import` JavaScript 模块请求。钉钉移动端曾报告脚本收到 `image/png` 导致拒绝执行；同 UA 的服务端依赖检查不能复现，尚不能仅凭该报错判定是网关、客户端图片处理还是缓存。生产构建仍由 Vite 转换为带哈希资源或内联图片，不影响图片缓存。
 
 排查时先区分启动错误与登录错误：`module-startup-failed` 属于模块加载/初始化阶段，开发登录不调用钉钉 SDK，不能直接归因于 CorpId 或免登权限。可以提供页面中的加载信息定位；本次已由用户在 iPhone Air、iOS 26.4.1、钉钉 9.0.2 实机确认：改为普通图片 URL 后，开发地址恢复可进入。该结论只覆盖开发访问，未执行生产发布或生产钉钉免登验收。
+
+## WebView 能力兼容
+
+前端不按安卓、Windows、iOS 或 macOS 限制免登。开发源码、依赖预构建及部署构建统一以 Chrome 80 为语法转换目标；这要求原生 ES Modules、动态 import、BigInt、Proxy、Fetch 等基础能力，不承诺无 ES Modules 的老浏览器或 IE。布局先声明 `vh` 高度，再由支持 `dvh` 的内核覆盖；移动工作台优先使用实际可视视口像素高度，避免旧内核忽略 `dvh` 后主容器塌为零。工作台尺寸为零或被零高度主容器裁切时不再当作入场成功，转为可展开的启动诊断。旧 WebView 缺少 `Intl.Segmenter` 时跳过逐字动画，直接显示完整正文，不在模块导入时中断；登录取消使用 `AbortSignal.aborted`，不依赖较新的 `throwIfAborted()`。历史读取与列表选择不依赖数组 `at`、`findLast` 或 `Object.hasOwn`。这些兼容处理不代表已验证所有版本的钉钉内核；钉钉桥接、脚本加载和其余能力仍需按设备上的加载信息定位。
 
 ## 钉钉移动端全屏入口
 
 钉钉应用首页 URL 推荐直接配置以下地址，参数位于 Hash 之前：
 
-- 开发：`https://pheno.szkl.com/dev/knowledge-accumulation/?dd_full_screen=true#assistant`
-- 生产：`https://pheno.szkl.com/knowledge-accumulation/?dd_full_screen=true#assistant`
+- 开发：`https://talent.szkl.com/dev/knowledge-accumulation/?dd_full_screen=true#assistant`
+- 生产：`https://talent.szkl.com/knowledge-accumulation/?dd_full_screen=true#assistant`
 
 依据[钉钉移动端全屏能力](https://open.dingtalk.com/document/orgapp/full-screen-display-of-microapplication-page)，`dd_full_screen=true` 用于移动容器全屏展示；PC 不启用此能力。已从带参入口打开时不额外加载全屏 SDK，诊断阶段为 `entry-parameter`。移动钉钉从漏参旧地址打开时，先保持进入卡片隐藏，仅加载全屏辅助模块与 SDK，在 ready 后通过 [biz.navigation.replace](https://open.dingtalk.com/document/orgapp-client/replace-page) 将当前页面替换为带参地址，保留原查询参数与 Hash，不额外压入一个页面。新页面已有参数，不会再次跳转，此时才显示进入动画、加载业务模块和发起认证；旧容器不挂载应用、不发起登录。每个页面最多发起一次替换，迟到或重复回调不会重复执行。普通浏览器和钉钉 PC 不进行此跳转。
 
@@ -44,16 +48,24 @@ Vite `base` 为 `/dev/knowledge-accumulation/`，脚本、样式、图片、依�
 
 此前 `sdk-failed: importing a module script failed` 已只读复现为 SDK 旧预构建 URL 返回 504：缓存目录被 npm 清理后，运行中的 Vite 仍持有旧引用；缓存已迁出 `node_modules`，配置变更触发开发服务器重建预构建依赖。
 
+## 移动端导航手势
+
+移动工作台的边缘手势与退出行为见[智能体问答](../features/assistant.md#提交与模式)。`src/services/mobileNavigation.js` 集中处理左边缘手势、钉钉返回手势开关及关闭当前页面。SDK 参数按已安装的 `dingtalk-jsapi` 契约传递：`popGestureEnabled` 与 `backForwardNavigationGestures` 在工作台内设为 false，离开后恢复 true；主动退出调用 `closePage`。桥接或 API 不可用时有界结束，不修改登录状态、不新增历史记录，也不阻塞工作台。
+
+原生设置和页面内触摸拦截分开处理；自动化验证仅覆盖参数、生命周期及手势识别，不能代替 iOS 钉钉或浏览器实机对原生侧滑返回的验证。
+
 ## API 转发
+
+路径由运行方式决定，登录方式不改变路径。开发服务器使用钉钉登录时仍保留 `/dev`，后端也应使用保留该前缀的本地启动入口；配置步骤见[开发服务器使用钉钉登录](authentication.md#开发服务器使用钉钉登录)。
 
 浏览器统一调用同源接口，不直接请求本机后端地址。
 
 | 环境 | 浏览器 API 前缀 | 到后端的前缀 |
 | --- | --- | --- |
-| 开发 | `/dev/knowledge-accumulation/api` | knowledge-accumulation-be：`/knowledge-accumulation/api` |
+| 开发 | `/dev/knowledge-accumulation/api` | knowledge-accumulation-be：`/dev/knowledge-accumulation/api` |
 | 生产与 preview | `/knowledge-accumulation/api` | knowledge-accumulation-be：`/knowledge-accumulation/api` |
 
-开发代理只移除 `/dev`。登录、头像与平台目录均通过同一前缀调用 knowledge-accumulation-be。`KNOWLEDGE_BACKEND_URL` 控制开发和 preview 代理目标，默认 `http://127.0.0.1:24000`，必须是无凭据、路径、查询和片段的 HTTP/HTTPS 根地址，不注入浏览器。平台列表不再调用 registry-be，无需 `REGISTRY_BACKEND_URL`。
+开发网关与 Vite 代理均保留 `/dev`；后端通过 `python -m app.main` 或直接运行 `app/main.py` 启用相同前缀。登录、头像与平台目录均通过同一前缀调用 knowledge-accumulation-be。`KNOWLEDGE_BACKEND_URL` 控制开发和 preview 代理目标，默认 `http://127.0.0.1:15000`，必须是无凭据、路径、查询和片段的 HTTP/HTTPS 根地址，不注入浏览器。平台列表不再调用 registry-be，无需 `REGISTRY_BACKEND_URL`。
 
 ## 生产部署
 
@@ -64,6 +76,8 @@ Vite `base` 为 `/dev/knowledge-accumulation/`，脚本、样式、图片、依�
 ## Docker 与 Compose
 
 根目录 `Dockerfile` 使用 Node 24 构建、Nginx 1.28 Alpine 提供静态网页。`.dockerignore` 使用白名单，不将本机 `.env`、开发固定凭据、测试、依赖或构建产物发送到构建器。只通过公开构建参数 `VITE_DINGTALK_CORP_ID` 配置生产免登，缺失时构建失败；修改 CorpId 后必须重建镜像。
+
+新增 Vite 配置模块或运行图片时，同时核对 `.gitignore` 和 `.dockerignore`：文件既要能从仓库取得，也要进入 Docker 构建上下文。当前构建包含浏览器兼容配置及问答过程、移动端树图使用的图片。README 预览图位于 `description/assets/`，仅用于文档，不进入镜像；单独更新 README 或预览图无需重建服务。
 
 同级 [部署项目](../../../knowledge-accumulation-deploy/readme.md)的 `knowledge-frontend` 服务从 `../knowledge-accumulation-fe` 构建，宿主机默认 `127.0.0.1:24080` 映射容器 80。它与 `knowledge-backend` 位于同一网络，通过 `BACKEND_UPSTREAM=knowledge-backend:8000` 转发 API，等待后端 HTTP 健康后启动。独立运行镜像时须将该变量改为容器内可达的后端 `host:port`，不能填宿主机的 `127.0.0.1`。
 
@@ -92,4 +106,4 @@ Nginx 为 `/knowledge-accumulation/assets/` 下带内容哈希的图标及其他
 
 统一入口注册 `icon-cache-sw.js`，在 HTTPS 或 localhost 且浏览器支持 Service Worker 时，为本地图标、图片及回答中的外站图标提供 Cache Storage 持久缓存。图标首次受控加载后可跨刷新复用，最长 7 天、最多 48 项，同一 URL 的并发加载合并；带版本哈希的构建资源更新后使用新 URL。外站支持 opaque 图片响应，不要求站点开放 CORS；请求不带 Cookie 或业务 Bearer。可读的失败响应及声明 no-store 的响应不落缓存；opaque 响应受浏览器限制，无法检查状态码或缓存头。
 
-缓存仅处理统一入口页面发起的公共图片请求，不缓存子平台页面、接口、鉴权头像、附件、HTML 或脚本；开发与生产缓存按各自 scope 隔离。内联 SVG 图标不产生网络请求，无需额外缓存。浏览器禁止缓存或注册失败时回退正常图片加载，不影响登录及问答。网关需将该脚本按静态 JavaScript 正常返回，不能回退成 HTML；不应给 Service Worker 脚本设置长期 immutable 缓存。
+开发模式的 `src/assets/` 原图不进入七天图片缓存，交由浏览器 HTTP 缓存按 ETag 校验，避免替换图片后继续显示旧版本。缓存仅处理统一入口页面发起的公共图片请求，不缓存子平台页面、接口、鉴权头像、附件、HTML 或脚本；开发与生产缓存按各自 scope 隔离。内联 SVG 图标不产生网络请求，无需额外缓存。浏览器禁止缓存或注册失败时回退正常图片加载，不影响登录及问答。网关需将该脚本按静态 JavaScript 正常返回，不能回退成 HTML；不应给 Service Worker 脚本设置长期 immutable 缓存。

@@ -3,9 +3,15 @@ var root = document.getElementById('app')
 var startup = document.getElementById('app-startup')
 var finished = false
 var lastError = ''
+var workspaceOpened = false
+var applicationFailed = false
 var stage = 'Loading application modules'
 var retryKey = 'knowledge-accumulation.module-retry:' + window.location.pathname
 var english = false
+var deadline
+var moduleStartedAt = 0
+var moduleTimedOut = false
+var moduleLoadTimeout = import.meta.env.DEV ? 60000 : 20000
 try { english = localStorage.getItem('knowledge-accumulation.language') === 'en' } catch (_) {}
 function text(zh, en) { return english ? en : zh }
 document.getElementById('startup-title').textContent = text('正在进入', 'Signing you in')
@@ -17,7 +23,8 @@ function safeMessage(value) {
 function showFailure(reason) {
   if (finished || !startup) return
   startup.hidden = false
-  if (!document.getElementById('app-startup')) { root.textContent = ''; root.appendChild(startup) }
+  if (startup.parentElement !== document.body) document.body.appendChild(startup)
+  root.inert = true
   document.getElementById('startup-title').textContent = text('暂时无法进入', 'Unable to open your workspace')
   document.getElementById('startup-message').textContent = text('页面资源暂未加载成功，请重新尝试。', 'Some page resources could not be loaded. Please try again.')
   document.getElementById('startup-loading').hidden = true
@@ -31,9 +38,12 @@ function showFailure(reason) {
     'Stage: ' + stage,
     'Reason: ' + reason,
     'Error: ' + (lastError || 'none captured'),
+    'Module loading budget: ' + moduleLoadTimeout + ' ms',
+    'Module loading elapsed: ' + (moduleStartedAt ? Date.now() - moduleStartedAt : 0) + ' ms',
     'Failed resources: ' + failedResources(),
     'Browser: ' + navigator.userAgent,
     'Viewport: ' + window.innerWidth + ' x ' + window.innerHeight + (viewport ? ' / visible ' + Math.round(viewport.width) + ' x ' + Math.round(viewport.height) : ''),
+    'CSS dvh: ' + (typeof CSS !== 'undefined' && typeof CSS.supports === 'function' && CSS.supports('height', '100dvh')),
     'Intl.Segmenter: ' + (typeof Intl !== 'undefined' && typeof Intl.Segmenter === 'function'),
     'AbortSignal.throwIfAborted: ' + (typeof AbortSignal !== 'undefined' && typeof AbortSignal.prototype.throwIfAborted === 'function'),
   ].join('\n')
@@ -43,7 +53,21 @@ function captureError(event) {
   lastError = safeMessage(event.message || event.target && (event.target.src || event.target.href) || 'A script resource could not be loaded')
 }
 window.addEventListener('error', captureError, true)
-var deadline = setTimeout(function () { showFailure('startup-timeout') }, 20000)
+function reportApplicationFailure(event) {
+  if (workspaceOpened || applicationFailed) return
+  applicationFailed = true
+  finished = false
+  clearTimeout(deadline)
+  lastError = safeMessage(event.detail || 'Application initialization failed')
+  stage = 'Initializing workspace'
+  showFailure('application-initialization-failed')
+}
+window.addEventListener('knowledge-app-error', reportApplicationFailure)
+window.addEventListener('knowledge-workspace-ready', function () {
+  workspaceOpened = true
+  window.removeEventListener('knowledge-app-error', reportApplicationFailure)
+}, { once: true })
+
 // ES 模块失败会留在当前文档的模块缓存中，重新 import 同一地址不能可靠恢复。
 // 只对明确的模块下载失败自动更换文档一次；存储不可用时交给用户手动重试。
 function retryModuleLoad(error) {
@@ -96,8 +120,21 @@ entryTask.then(function (replaced) {
   }
   startup.hidden = false
   stage = 'Loading application modules'
+  // 全屏入口有独立的 6 秒上限，不占用模块预算；开发源码需要更多网络往返。
+  moduleStartedAt = Date.now()
+  deadline = setTimeout(function () {
+    if (finished || applicationFailed) return
+    moduleTimedOut = true
+    showFailure('startup-timeout')
+  }, moduleLoadTimeout)
   return import('./main.js').then(function () {
+    if (applicationFailed) return
     finished = true
+    // 网络慢时模块仍可能迟到成功，交还 Vue 的认证界面，不残留超时遮罩。
+    if (moduleTimedOut) {
+      if (startup.parentElement === document.body) startup.remove()
+      root.inert = false
+    }
     try {
       window.sessionStorage.removeItem(retryKey)
       var url = new URL(window.location.href)

@@ -1,3 +1,4 @@
+import { throwIfAborted } from './abortSignal.js'
 import { uiText, LocalizedError } from '../i18n/index.js'
 export const ACCESS_TOKEN_KEY = 'access_token'
 const environmentPrefix = import.meta.env?.DEV ? '/dev' : ''
@@ -27,10 +28,6 @@ export function readAccessToken(storage) {
 function validUser(user) {
   return user && typeof user.userid === 'string' && user.userid.trim() &&
     (user.name === null || typeof user.name === 'string') && Array.isArray(user.managed_platforms)
-}
-
-function throwIfAborted(signal) {
-  signal?.throwIfAborted()
 }
 
 export function createAuthentication({ mode, apiBase, storage, fetch: fetcher = globalThis.fetch, requestCode }) {

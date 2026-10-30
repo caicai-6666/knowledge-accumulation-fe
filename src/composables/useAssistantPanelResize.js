@@ -3,8 +3,17 @@ import { nextTick, onActivated, onBeforeUnmount, onDeactivated, onMounted, ref, 
 const CHAT_MIN_WIDTH = 360
 const TREE_MIN_WIDTH = 340
 const KEYBOARD_STEP = 24
+export const ASSISTANT_WIDTH_KEY = 'knowledge-accumulation.assistant.chat-width'
+function browserStorage() { try { return globalThis.localStorage } catch { return null } }
+function readWidth(storage) {
+  try {
+    const width = Number(storage?.getItem(ASSISTANT_WIDTH_KEY))
+    if (Number.isInteger(width) && width >= CHAT_MIN_WIDTH && width <= 10000) return width
+  } catch { /* 存储受限时沿用默认双栏比例。 */ }
+  return null
+}
 
-export function useAssistantPanelResize(active) {
+export function useAssistantPanelResize(active, { storage = browserStorage() } = {}) {
   const workspaceElement = ref(null)
   const chatElement = ref(null)
   const resizeHandle = ref(null)
@@ -16,6 +25,15 @@ export function useAssistantPanelResize(active) {
   let observer
   let measureFrame = 0
   let drag = null
+  let preferredWidth = readWidth(storage)
+
+  function rememberWidth(width) {
+    preferredWidth = width === null ? null : Math.round(width)
+    try {
+      if (preferredWidth === null) storage?.removeItem(ASSISTANT_WIDTH_KEY)
+      else storage?.setItem(ASSISTANT_WIDTH_KEY, String(preferredWidth))
+    } catch { /* 持久化失败仍保留当前工作台的宽度偏好。 */ }
+  }
 
   function clamp(width) { return Math.min(bounds.value.max, Math.max(bounds.value.min, width)) }
 
@@ -31,7 +49,8 @@ export function useAssistantPanelResize(active) {
     }
     if (stacked.value) { finishResize(); return }
     bounds.value = { min: CHAT_MIN_WIDTH, max: rect.width - TREE_MIN_WIDTH }
-    if (chatWidth.value !== null) chatWidth.value = clamp(chatWidth.value)
+    // 窄窗口只限制显示宽度，不改写用户偏好；放大或返回桌面后可恢复。
+    if (!drag) chatWidth.value = preferredWidth === null ? null : clamp(preferredWidth)
     displayedWidth.value = Math.round(chatWidth.value ?? chatElement.value?.getBoundingClientRect().width ?? CHAT_MIN_WIDTH)
   }
 
@@ -45,7 +64,7 @@ export function useAssistantPanelResize(active) {
     measure()
     if (stacked.value || !workspaceElement.value) return
     const rect = workspaceElement.value.getBoundingClientRect()
-    drag = { pointerId: event.pointerId, left: rect.left, offset: (chatElement.value?.getBoundingClientRect().right ?? event.clientX) - event.clientX }
+    drag = { pointerId: event.pointerId, left: rect.left, offset: (chatElement.value?.getBoundingClientRect().right ?? event.clientX) - event.clientX, changed: false }
     event.currentTarget.setPointerCapture(event.pointerId)
     resizing.value = true
     event.preventDefault()
@@ -55,11 +74,13 @@ export function useAssistantPanelResize(active) {
     if (!drag || event.pointerId !== drag.pointerId) return
     chatWidth.value = clamp(event.clientX - drag.left + drag.offset)
     displayedWidth.value = Math.round(chatWidth.value)
+    drag.changed = true
   }
 
   function finishResize(event) {
     if (!drag || (event?.pointerId !== undefined && event.pointerId !== drag.pointerId)) return
     const pointerId = drag.pointerId
+    if (drag.changed) rememberWidth(chatWidth.value)
     drag = null
     resizing.value = false
     if (resizeHandle.value?.hasPointerCapture(pointerId)) resizeHandle.value.releasePointerCapture(pointerId)
@@ -74,10 +95,12 @@ export function useAssistantPanelResize(active) {
     event.preventDefault()
     chatWidth.value = clamp(targets[event.key])
     displayedWidth.value = Math.round(chatWidth.value)
+    rememberWidth(chatWidth.value)
   }
 
   async function resetWidth() {
     finishResize()
+    rememberWidth(null)
     chatWidth.value = null
     await nextTick()
     measure()

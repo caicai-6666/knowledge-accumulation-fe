@@ -16,6 +16,7 @@
 !/config/
 /config/*
 !/config/developmentMapping.js
+!/config/browserCompatibility.js
 !/config/developerAuthentication.js
 
 # 业务源码及必要的空目录占位；资源只保留当前实际引用的文件。
@@ -26,6 +27,8 @@
 !/src/**/*.vue
 !/src/**/*.css
 !/src/**/.gitkeep
+!/src/assets/a2a.webp
+!/src/assets/boardcast.webp
 !/src/assets/contract.webp
 !/src/assets/exploration.webp
 !/src/assets/external-expert.webp
@@ -35,6 +38,7 @@
 !/src/assets/registry.webp
 !/src/assets/sleep.webp
 !/src/assets/surprise.webp
+!/src/assets/tree.webp
 
 # 运行时公共脚本。
 !/public/
@@ -47,6 +51,11 @@
 !/description/**/
 !/description/**/*.md
 !/description/**/.gitkeep
+
+# README 引用的应用预览图。
+!/description/assets/assistant-desktop.png
+!/description/assets/platforms-desktop.png
+!/description/assets/assistant-mobile.png
 
 # 即使位于开放目录中，也不提交本机配置、日志或生成物。
 **/.DS_Store

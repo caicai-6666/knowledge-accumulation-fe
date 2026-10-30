@@ -8,7 +8,7 @@ export function answerTimingLabel(task) {
   return terminal ? t('用时 {value0}', { value0: duration }) : t('已经处理 {value0}', { value0: duration })
 }
 
-const progressTypes = new Set(['thinking', 'online-search', 'external-expert', 'local-search'])
+const progressTypes = new Set(['thinking', 'online-search', 'external-expert', 'local-search', 'a2a', 'boardcast'])
 const isProgress = step => step.kind === 'progress' || progressTypes.has(step.type)
 // label 原样保存 task.progress.message；比较完整原文，不裁剪空格或按展示文案去重。
 const sameProgress = (left, right) => Boolean(left && right && left.type === right.type && left.label === right.label)

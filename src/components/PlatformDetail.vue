@@ -40,9 +40,8 @@ defineProps({ platform: { type: Object, required: true } })
 .platform-detail__managers { min-height: 0; margin: 0; padding: 0 5px 0 0; overflow: auto; list-style: none; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: #879c8e40 transparent; }
 .platform-detail__empty { margin: 0; padding: 12px 0; color: #8b9a91; font-size: 13px; }
 .platform-detail__footer { display: flex; justify-content: center; padding: 20px 8px 8px; margin-top: 20px; border-top: 1px solid #668b7017; }
-/* From Uiverse.io by ke1221；链接与按钮共用浮雕及按压样式。 */
+/* From Uiverse.io by ke1221；链接与按钮共用浮雕样式。 */
 .platform-detail__entry { display: inline-flex; align-items: center; justify-content: center; gap: 20px; color: #090909; padding: .7em 1.7em; font: inherit; font-size: 18px; line-height: 1.4; border-radius: .5em; background: #e8e8e8; cursor: pointer; border: 1px solid #e8e8e8; text-decoration: none; transition: color .3s, box-shadow .3s; box-shadow: 6px 6px 12px #c5c5c5, -6px -6px 12px #ffffff; }
-.platform-detail__entry:active:not(:disabled) { color: #666; box-shadow: inset 4px 4px 12px #c5c5c5, inset -4px -4px 12px #ffffff; }
 .platform-detail__entry:focus-visible { outline: 3px solid #7063d8; outline-offset: 3px; }
 .platform-detail__footer button:disabled { cursor: not-allowed; opacity: .5; }
 .platform-detail__footer svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }

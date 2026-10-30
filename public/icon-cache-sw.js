@@ -28,7 +28,8 @@ async function isPublicIconRequest(event) {
   const scope = new URL(self.registration.scope)
   if (page.origin !== scope.origin || ![scope.pathname, `${scope.pathname}index.html`].includes(page.pathname)) return false
   if (url.origin !== scope.origin) return true
-  return url.pathname.startsWith(`${scope.pathname}assets/`) || url.pathname.startsWith(`${scope.pathname}src/assets/`) ||
+  // 开发原图没有内容版本号，交给 HTTP 缓存校验，避免改图后继续显示七天旧图。
+  return url.pathname.startsWith(`${scope.pathname}assets/`) ||
     [`${scope.pathname}favicon.svg`, `${scope.pathname}icons.svg`].includes(url.pathname)
 }
 
