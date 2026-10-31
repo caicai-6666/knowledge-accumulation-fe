@@ -31,6 +31,10 @@ export function makeLiveNode(treeId, turnId, input, source) {
 function settleProcess(node, status = 'complete') {
   for (const step of node.process) if (step.status === 'generating') step.status = status
 }
+function updateElapsedTime(node) {
+  // 历史替换与激活事件立即恢复计时，不能等下一秒 tick 才重新显示计时栏。
+  if (node.status === 'generating' && Number.isFinite(node.startedAt)) node.elapsedMs = Math.max(0, Date.now() - node.startedAt)
+}
 function applyStatus(node, data) {
   if (!Object.prototype.hasOwnProperty.call(statuses, data.status) || typeof data.can_interrupt !== 'boolean') invalid()
   node.turnStatus = data.status
@@ -46,22 +50,25 @@ function applyStatus(node, data) {
   }
   if (data.superseded_by_turn_id) node.supersededBy = data.superseded_by_turn_id
   if (TERMINAL_TURNS.has(data.status)) settleProcess(node, data.status === 'completed' ? 'complete' : 'cancelled')
+  updateElapsedTime(node)
 }
 function applyMessage(node, event, data, { reveal = false } = {}) {
   if (!isTreeId(data.message_id) || !['intermediate', 'final'].includes(data.message_kind)) invalid()
   const text = event === 'message.delta' ? data.delta : data.text
-  if (!validText(text)) invalid()
+  const status = event === 'message.delta' ? 'streaming' : data.status || 'completed'
+  if (!validText(text) || !['streaming', 'completed', 'interrupted'].includes(status)) invalid()
   let message = node.publicMessages.find(message => message.id === data.message_id)
   const newMessage = !message
   if (!message) { message = { id: data.message_id, kind: data.message_kind, text: '', status: 'streaming' }; node.publicMessages.push(message) }
   if (message.kind !== data.message_kind) invalid()
   if (event === 'message.delta') message.text += text
-  else { message.text = text; message.status = data.status || 'completed' }
+  else message.text = text
+  message.status = status
   if (message.kind === 'intermediate') {
     let step = node.process.find(step => step.id === message.id)
     if (!step) { settleProcess(node); step = { id: message.id, kind: 'message', label: t('过程输出'), content: '', status: 'generating', reveal }; node.process.push(step) }
     step.content = message.text
-    step.status = event === 'message.delta' ? 'generating' : message.status === 'interrupted' ? 'cancelled' : 'complete'
+    step.status = message.status === 'streaming' ? 'generating' : message.status === 'interrupted' ? 'cancelled' : 'complete'
   } else {
     if (newMessage && reveal && !node.answer) node.revealAnswer = true
     settleProcess(node)
@@ -133,11 +140,19 @@ export function normalizeExplorationTree(payload) {
     } else {
       for (const message of item.messages || []) if (message.kind !== 'question') applyMessage(node, 'message.completed', { message_id: message.id, message_kind: message.kind, text: message.text, status: message.status })
     }
+    // display 游标包含 delta；推进游标前必须恢复对应的累计片段，否则后续分片会丢失前缀。
+    const streaming = item.display?.streaming_messages ?? []
+    if (!Array.isArray(streaming)) invalid()
+    for (const message of streaming) {
+      if (message?.status !== 'streaming' || node.publicMessages.some(item => item.id === message.message_id)) invalid()
+      applyMessage(node, 'message.completed', message)
+    }
     // 数据库节点是终态权威；展示事件可能只持久化到最后确认的前缀。
     node.status = item.status
     node.turnStatus = item.status === 'complete' ? 'completed' : item.status === 'generating' ? 'processing' : item.status
     node.canInterrupt = item.can_interrupt && item.status === 'generating'
     node.processingDurationMs = item.processing_duration_ms
+    updateElapsedTime(node)
     if (!node.publicMessages.some(message => message.kind === 'final')) node.answer = originalAnswer
     if (item.status !== 'generating') settleProcess(node, item.status === 'complete' ? 'complete' : 'cancelled')
     if (item.display?.last_sequence !== null && item.display?.last_sequence !== undefined) node.lastSequence = String(item.display.last_sequence)
