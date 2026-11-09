@@ -3,6 +3,7 @@ import { defineConfig, loadEnv } from 'vite'
 import { developmentMapping } from './config/developmentMapping.js'
 import { browserCompatibility, browserTarget } from './config/browserCompatibility.js'
 import { developerAuthentication } from './config/developerAuthentication.js'
+import { developmentCompression } from './config/developmentCompression.js'
 
 // https://vite.dev/config/
 export default defineConfig(({ command, mode, isPreview }) => {
@@ -25,7 +26,7 @@ export default defineConfig(({ command, mode, isPreview }) => {
     oxc: { target: browserTarget },
     build: { target: browserTarget },
     base: development ? '/dev/knowledge-accumulation/' : '/knowledge-accumulation/',
-    plugins: [vue(), browserCompatibility(), developmentMapping(), ...(authMode === 'development' ? [developerAuthentication(env.KNOWLEDGE_DEVELOPER_LOGIN_CREDENTIAL)] : [])],
+    plugins: [vue(), browserCompatibility(), developmentMapping(), developmentCompression(), ...(authMode === 'development' ? [developerAuthentication(env.KNOWLEDGE_DEVELOPER_LOGIN_CREDENTIAL)] : [])],
     // 缓存放在项目根目录下，避免 npm 安装依赖时清理 node_modules 中的额外目录。
     cacheDir: 'cache/vite',
     // 显式预构建全部运行依赖，避免首访发现新依赖后更换版本而令并发请求失效。
@@ -36,6 +37,7 @@ export default defineConfig(({ command, mode, isPreview }) => {
       port: 15080,
       strictPort: true,
       allowedHosts: ['talent.szkl.com'],
+      warmup: { clientFiles: ['./src/main.js', './src/layouts/WorkspaceLayout.vue', './src/components/AssistantWorkspace.vue'] },
       proxy: {
         '/dev/knowledge-accumulation/api': {
           target,

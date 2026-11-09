@@ -15,6 +15,16 @@ Vite `base` 为 `/dev/knowledge-accumulation/`，脚本、样式、图片、依�
 
 `config/developmentMapping.js` 对带 `/dev` 的 HTTP 与 WebSocket 请求直接透传，仅对旧网关移除前缀后的请求补回 `/dev`，不会重复添加前缀。依赖缓存使用项目根目录的 `cache/vite`，避免隐藏目录映射限制，也避免 npm 将 `node_modules` 下的额外缓存目录当作无用依赖清理。钉钉 SDK 明确加入依赖预构建列表；无需额外开放域名根目录 `/src/` 或 `/@vite/`。
 
+### 开发资源传输与首屏准备
+
+`config/developmentCompression.js` 在 Vite 开发服务器发送资源时启用 HTTP 压缩，使用仅在 Node 侧运行的开发依赖 `compression`。支持压缩的客户端按 `Accept-Encoding` 协商 Brotli 或 gzip；gzip 使用等级 6，Brotli 使用中间件默认等级 4，避免开发时进行高成本压缩。压缩发生在进入 FRP 隧道前，减少开发机到网关及网关到浏览器的文本传输量，不改变源码、调试与 HMR 行为。
+
+压缩仅用于开发前缀下成功的 GET 文本资源（HTML、JS、CSS、JSON/source map 与 SVG），阈值为 1 KiB；图片等二进制资源、Range、HEAD、API、开发凭据、`no-store` 与 `no-transform` 响应不压缩，SSE 和 HMR WebSocket 保持原路径。中间件处理编码协商和 `Vary: Accept-Encoding`，沿用 Vite 的 ETag 与缓存策略；不支持压缩的客户端继续接收原始响应。外层代理应保留编码与 Vary 响应头，避免对已压缩响应重复编码。
+
+`server.warmup.clientFiles` 预热业务入口、工作台布局与问答工作台的转换结果，减少开发服务器重启后首次访问的转换等待；不预请求业务接口。管理平台代码在首次进入该页时动态导入，问答首屏不下载平台详情与管理人模块；页面加载和缓存边界见[管理平台入口](../features/platforms.md)。这些措施减少传输量和非首屏请求，但不会消除开发源码模块间的网络往返延迟。
+
+调整依赖或配置后需完成 `npm install` 并确保 Vite 已重启。验证应同时覆盖资源编码和解压内容、ETag/304、热更新、按需页面加载、错误重试及 SSE 首条事件到达时机，并从公网映射和实际钉钉客户端复核；本机加载耗时不能代表 FRP 与公网链路的实际体验。此配置仅作用于开发服务器，生产压缩仍由部署网关或静态服务器配置。
+
 ## 移动 WebView 启动与资源类型
 
 首屏通过独立 `src/bootstrap.js` 动态加载业务入口。模块加载与认证共用 `src/authentication-status.css` 的进入卡片样式，使用同样的“正在进入”与转圈，不显示额外的双语加载页；Vue 接管后卡片不重复淡入。模块加载或 Vue 首屏组件初始化失败、或模块加载超过时限（开发 60 秒、部署构建 20 秒）时，显示错误卡片“暂时无法进入”、重新尝试和可展开的加载信息，不依赖 Vue 成功启动。Vue 首屏组件异常会转交独立入口显示初始化失败信息；错误卡片位于应用挂载容器外，避免 Vue 清空容器后留下白屏。模块计时从全屏入口准备结束后开始，不与全屏准备共用预算；超时后资源迟到加载成功会移除独立错误遮罩，将界面交还 Vue 的认证或工作台流程，真正的初始化异常不会自动隐藏。工作台成功显示后不再用启动卡片覆盖业务界面。加载信息仅留在本机页面，包含异常摘要、可获取的失败资源路径/HTTP 状态、浏览器及视口能力；不上传日志，不读取 token，资源 URL 的查询和 Hash 不展示。
@@ -71,6 +81,8 @@ Vite `base` 为 `/dev/knowledge-accumulation/`，脚本、样式、图片、依�
 
 生产资源前缀为 `/knowledge-accumulation/`，将 `dist/` 放在该路径；`/knowledge-accumulation/api/` 应优先转发到 knowledge-accumulation-be，保留完整业务前缀，不能退回前端 HTML。同源管理平台可使用更深的路径；网关需按最长路径优先匹配，避免被统一入口静态规则覆盖。
 
+生产容器由 Nginx 对 HTML、JS、CSS、JSON 与 SVG 启用 gzip（等级 6，阈值 1 KiB），并返回 `Vary: Accept-Encoding`，客户端不支持时提供原始内容。API 路径显式 `gzip off`，保持鉴权响应和 SSE 的无缓存、无缓冲行为；图片等二进制资源不额外压缩。此配置独立于 Vite 开发中间件，无需新增 Compose 变量，更新前端镜像即可生效。外层代理应保留内容编码及 Vary 响应头。
+
 生产构建前配置公开企业标识：Compose 使用部署目录的 `DINGTALK_CORP_ID`，独立 Vite/Docker 构建使用 `VITE_DINGTALK_CORP_ID`。后端选择 `APP_ENV=production` 并配置对应钉钉应用。生产容器使用下述 Nginx 配置；`npm run preview` 仅用于验证产物及同源代理，不作为生产服务器。
 
 ## Docker 与 Compose
@@ -95,6 +107,8 @@ docker compose up -d --no-deps knowledge-frontend
 Nginx 保留 `/knowledge-accumulation/api/` 路径和 Bearer 头，不重试任务请求；API 禁止缓存，SSE 关闭代理缓冲，读取空闲超时为 3600 秒。请求体上限 22 MiB，为后端最多 20 MiB PDF 加 multipart 和问题字段预留空间，最终限制仍以后端校验为准。`/healthz` 仅检查前端 HTTP，不触发登录或模型任务。
 
 镜像已在隔离 Docker 网络中验证 Nginx 配置、健康探针、路径回退、缓存头、鉴权头和 multipart 转发；超过 20 MiB 且包含额外字段的请求可通过代理，23 MiB 请求被拒绝。测试上游的首条 SSE 事件在延迟结束事件前即时到达。此验证使用公开测试 CorpId 和模拟上游，不替代生产钉钉免登或真实模型验收，不启动正式 Compose 服务。
+
+静态压缩与管理平台按需加载更新后，已重新构建隔离验证镜像，确认 JS/CSS 的 gzip 解压内容与原始响应一致、Vary/ETag/304 正常、缺失资源及子平台前缀返回 404；生产路径下管理平台分块可正常加载。API 保留 Bearer 且不压缩，SSE 首条事件仍在结束事件前到达。该验证镜像使用测试 CorpId，正式发布应使用部署配置重新构建。
 
 外层网关应将生产 `/knowledge-accumulation/` 转发到前端 24080，并保留 HTTPS 的 `X-Forwarded-Proto`。网关也需关闭 SSE 缓冲并设置足够的空闲超时。`/knowledge-accumulation/registry` 和 `/knowledge-accumulation/contract` 必须优先转发至各自前端；当前统一入口容器对这两个前缀返回 404，不将子平台错误显示成统一入口。开发映射仍使用 Vite 和 `/dev`，生产容器不提供开发固定凭据路由。
 

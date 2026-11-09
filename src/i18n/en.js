@@ -143,6 +143,8 @@ export default {
   "永久删除": "Delete permanently",
   "管理平台": "Platforms",
   "正在加载平台…": "Loading platforms…",
+  "平台页面暂时无法加载，请重试": "Could not load the platform page. Try again",
+  "当前显示上次加载的平台信息": "Showing the last loaded platform details",
   "暂无平台": "No platforms available",
   "平台信息": "Platform details",
   "选择一个平台": "Select a platform",

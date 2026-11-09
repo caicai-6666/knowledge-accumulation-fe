@@ -10,6 +10,7 @@
 !config/developmentMapping.js
 !config/browserCompatibility.js
 !config/developerAuthentication.js
+!config/developmentCompression.js
 !src/
 !src/**/
 !src/**/*.js

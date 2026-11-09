@@ -9,7 +9,7 @@ const sleepUrl = new URL('../assets/sleep.webp', import.meta.url).href
 
 const props = defineProps({ active: Boolean, user: { type: Object, default: null } })
 const emit = defineEmits(['authentication-expired'])
-const { platforms: directory, status, error, refresh } = usePlatforms(() => props.active, () => props.user, {
+const { platforms: directory, status, error, refreshing, hasLoaded, refresh } = usePlatforms(() => props.active, () => props.user, {
   onAuthenticationExpired: () => emit('authentication-expired'),
 })
 const platforms = computed(() => directory.value.filter(platform => platform.is_management_entry === true).map(presentPlatform))
@@ -23,12 +23,12 @@ watch(platforms, items => {
 <template>
   <div class="management-platforms">
     <aside class="platform-sidebar" :aria-label="t('管理平台')">
-      <PlatformNavigation v-model="selectedCode" :platforms="platforms" :active="active" />
+      <PlatformNavigation v-model="selectedCode" :platforms="platforms" :active="active" :loading="status === 'loading'" />
       <div v-if="status === 'error'" class="platform-load-state" role="alert">
         <p>{{ error }}</p>
-        <button type="button" @click="refresh">{{ t('重新加载') }}</button>
+        <p v-if="hasLoaded">{{ t('当前显示上次加载的平台信息') }}</p>
+        <button type="button" :disabled="refreshing" @click="refresh">{{ t('重新加载') }}</button>
       </div>
-      <p v-else-if="status === 'loading'" class="platform-load-message" role="status">{{ t('正在加载平台…') }}</p>
       <p v-else-if="status === 'ready' && !platforms.length" class="platform-load-message">{{ t('暂无平台') }}</p>
     </aside>
 
@@ -52,6 +52,7 @@ watch(platforms, items => {
 .platform-load-state p { margin: 0 0 12px; font-size: 12px; line-height: 1.8; }
 .platform-load-state button { padding: 7px 14px; color: #4b6053; background: #ffffffc9; border: 1px solid #d6e0d9; border-radius: 9px; cursor: pointer; }
 .platform-load-state button:focus-visible { outline: 3px solid #7063d8; outline-offset: 3px; }
+.platform-load-state button:disabled { opacity: .55; cursor: wait; }
 .platform-load-message { margin: 0; padding: 0 14px; color: #84938a; font-size: 12px; line-height: 1.8; }
 .platform-detail { display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; border: 1px solid #ffffffeb; border-radius: 27px; background: radial-gradient(circle at 90% 8%, #7468d50a, transparent 30%), radial-gradient(circle at 7% 92%, #3da2870a, transparent 28%), #fafcfcd9; box-shadow: inset 0 1px #ffffffdb, 0 18px 40px #34424e0d; }
 .platform-detail__placeholder { display: flex; flex: 1; flex-direction: column; align-items: center; justify-content: center; gap: 20px; min-height: 240px; padding: 24px; }

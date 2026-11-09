@@ -3,7 +3,7 @@ import { computed, ref, watch } from 'vue'
 import { locale } from './i18n/index.js'
 import WorkspaceLayout from './layouts/WorkspaceLayout.vue'
 import MolecularFieldBackground from './components/MolecularFieldBackground.vue'
-import ManagementPlatforms from './components/ManagementPlatforms.vue'
+import ManagementPlatformPage from './components/ManagementPlatformPage.vue'
 import AssistantWorkspace from './components/AssistantWorkspace.vue'
 import AuthenticationStatus from './components/AuthenticationStatus.vue'
 import { useAuthentication } from './composables/useAuthentication.js'
@@ -35,7 +35,7 @@ watch(locale, value => { if (typeof document === 'undefined' || !document.docume
             <KeepAlive><AssistantWorkspace :user="user" v-if="rendered" :active="active && state === 'ready'" @authentication-expired="retry" /></KeepAlive>
           </template>
           <template #platforms="{ active, rendered }">
-            <KeepAlive><ManagementPlatforms v-if="rendered" :active="active && state === 'ready'" :user="user" @authentication-expired="retry" /></KeepAlive>
+            <KeepAlive><ManagementPlatformPage v-if="rendered" :active="active && state === 'ready'" :user="user" @authentication-expired="retry" /></KeepAlive>
           </template>
         </WorkspaceLayout>
       </KeepAlive>

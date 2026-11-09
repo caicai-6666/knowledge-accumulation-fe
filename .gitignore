@@ -18,6 +18,7 @@
 !/config/developmentMapping.js
 !/config/browserCompatibility.js
 !/config/developerAuthentication.js
+!/config/developmentCompression.js
 
 # 业务源码及必要的空目录占位；资源只保留当前实际引用的文件。
 !/src/
