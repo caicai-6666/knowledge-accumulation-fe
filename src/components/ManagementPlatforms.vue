@@ -45,7 +45,7 @@ watch(platforms, items => {
 </template>
 
 <style scoped>
-.management-platforms { display: grid; grid-template-columns: clamp(224px, 18vw, 254px) minmax(0, 1fr); gap: 18px; height: 100%; min-height: 520px; padding: 24px; }
+.management-platforms { display: grid; grid-template-columns: clamp(224px, 18vw, 254px) minmax(0, 1fr); gap: 18px; height: 100%; min-height: 0; padding: 24px; }
 .platform-sidebar { display: flex; flex-direction: column; gap: 14px; min-width: 0; min-height: 0; }
 .platform-sidebar > nav { flex: 1; min-height: 0; }
 .platform-load-state { padding: 16px; color: #80604e; background: #fff9f1d9; border: 1px solid #e9ddcb; border-radius: 18px; }

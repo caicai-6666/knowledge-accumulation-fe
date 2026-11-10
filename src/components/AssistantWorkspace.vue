@@ -403,7 +403,7 @@ onBeforeUnmount(() => { scrollDisposed = true; ++positioningRevision; scrollFoll
 .agent-chat__service-status { display: flex; align-items: center; justify-content: space-between; flex: none; gap: 12px; margin: 0 30px 10px; padding: 10px 12px; color: #789082; background: #ffffff80; border-radius: 10px; font-size: 12px; line-height: 1.6; }
 .agent-chat__service-status.is-error { color: #9b655e; background: #fcf0edb3; }
 .agent-chat__service-status button { flex: none; padding: 3px 6px; color: inherit; background: transparent; border: 0; text-decoration: underline; }
-.assistant-workspace { position: relative; display: grid; grid-template-columns: minmax(360px, var(--assistant-chat-width, 1.08fr)) minmax(340px, 1fr); height: 100%; min-height: 540px; }
+.assistant-workspace { position: relative; display: grid; grid-template-columns: minmax(360px, var(--assistant-chat-width, 1.08fr)) minmax(340px, 1fr); height: 100%; min-height: 0; }
 .assistant-workspace.is-resizing { cursor: col-resize; user-select: none; }
 .assistant-workspace.is-resizing :deep(*) { cursor: col-resize !important; user-select: none; }
 .assistant-workspace > :deep(.question-tree) { border-left: 0; }
