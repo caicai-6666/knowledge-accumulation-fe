@@ -13,6 +13,7 @@
 - 平台名称和 logo 仅在选择栏展示；右侧选择后从 `description` 摘要开始，不重复显示标题或图标，保留仅供辅助技术读取的平台标题，右侧按纵向列表显示 `admins` 中的姓名与圆形头像；再次点击当前平台取消选择。不再展示演示标识、虚构角色、功能标签或入口说明。
 - 知识注册中心的“进入平台”复用项目基础路径 `import.meta.env.BASE_URL`，移除末尾斜杠后拼接 `/registry`，不另行判断环境。在当前窗口导航至开发路径 `/dev/knowledge-accumulation/registry`，生产构建使用 `/knowledge-accumulation/registry`，仅开发服务器带 `/dev` 前缀，与所选登录方式无关。跳转沿用当前域名及共享的 `localStorage.access_token`，URL 不携带凭据。合同管理平台沿用相同规则拼接 `/contract`，开发路径为 `/dev/knowledge-accumulation/contract`，生产路径为 `/knowledge-accumulation/contract`，在当前窗口跳转。
 - 管理页通过 `KeepAlive` 保留平台选择；各平台详情按 code 缓存，最多保留 12 份，切换或取消选择不重建已缓存详情及头像，刷新整个网页后重新加载。
+- 项目管理平台按代码 `project-management` 显式配置入口，沿用当前窗口和同源凭据：开发为 `/dev/knowledge-accumulation/project-management/`，生产为 `/knowledge-accumulation/project-management/`。
 - “进入平台”采用用户提供的 Uiverse.io / ke1221 浅灰浮雕按钮样式，按下时呈内凹阴影；跳转链接与未配置入口的禁用按钮保持统一外观。
 
 ## 平台描述 Markdown 契约
@@ -50,7 +51,7 @@
 
 `ManagementPlatformPage.vue` 在用户隔离的 `KeepAlive` 内按需加载页面，保留模块加载状态与重试入口；`PlatformNavigation.vue` 负责选择栏，`ManagementPlatforms.vue` 负责选择与详情缓存，`PlatformDetail.vue` 承载描述、进入按钮和管理员两栏内容，`usePlatforms.js` 负责加载状态和生命周期，`services/platforms.js` 集中处理认证请求、响应验证、75 秒超时与错误。首次进入管理页时加载，切换页保留数据和选择；同用户身份重新确认后在后台复核目录，成功后应用最新资料与入口权限，已成功读取的空列表同样视为缓存。用户变更立即清空目录，取消请求的迟到响应不覆盖当前数据。页面停用会取消未完成的目录请求，再次激活时补载；成功目录在普通页面往返时不重复加载，同一次加载中重复触发刷新不会新增请求。
 
-`data/platformPresentation.js` 仅维护图标、配色及已确认的入口地址。后端合同平台代码为 `contract-pheno`，使用 `src/assets/contract.webp`；注册中心使用 `src/assets/registry.webp`。其他子平台使用通用图标，名称和摘要不从代码猜测。响应严格校验 `supports_a2a`、`is_sub_management_platform`、`is_management_entry` 为 boolean；缺失或类型错误按接口异常处理。管理入口只按 `is_management_entry` 筛选，不由 A2A、子管理平台或管理员信息推断；入口标记撤销后清除已选详情。不按 `is_alive` 隐藏入口平台，也不将中间件存活状态作为访问权限或网页可达性。
+`data/platformPresentation.js` 仅维护图标、配色及已确认的入口地址。后端合同平台代码为 `contract-pheno`，使用 `src/assets/contract.webp`；注册中心使用 `src/assets/registry.webp`；现象项目智能管理平台代码为 `project-management`，使用 `src/assets/project-management.webp` 靶心图标，代码依据其后端项目说明核对。其他子平台使用通用图标，名称和摘要不从代码猜测。响应严格校验 `supports_a2a`、`is_sub_management_platform`、`is_management_entry` 为 boolean；缺失或类型错误按接口异常处理。管理入口只按 `is_management_entry` 筛选，不由 A2A、子管理平台或管理员信息推断；入口标记撤销后清除已选详情。不按 `is_alive` 隐藏入口平台，也不将中间件存活状态作为访问权限或网页可达性。
 
 头像复用 `UserAvatar.vue`，从 `admins[].avatar_url` 取得文件名，携带共享 token 调用头像接口；空头像或读取失败使用默认人像，取消和 Blob URL 清理见[用户头像](../platform/authentication.md#用户头像)。同名管理人保留独立列表项，不补造 userid、角色或部门。空管理员数组显示“暂无管理人”。
 

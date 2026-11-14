@@ -1,4 +1,12 @@
 export default {
+  "添加附件": "Attach files",
+  "支持 PDF、图片、Word 和 Excel，服务端转换为 PDF": "Attach PDF, images, Word or Excel files (converted to PDF by the server)",
+  "支持 PDF、图片、Word 和 Excel；最多 10 份，单份 10 MiB、合计 20 MiB，不支持空文件": "Attach up to 10 PDF, image, Word or Excel files, up to 10 MiB each and 20 MiB total. Empty files are not supported.",
+  "正在提交，上传并处理附件…": "Submitting, uploading and processing attachments…",
+  "正在检查附件…": "Checking attachments…",
+  "此附件将在提交并转换完成后提供 PDF 预览": "A PDF preview will be available after submission and conversion.",
+  "请分析附件。": "Please analyze the attachments.",
+
   "已置顶": "Pinned",
   "取消": "Cancel",
   "已选择 {value0} 棵问答树": "{value0} conversations selected",

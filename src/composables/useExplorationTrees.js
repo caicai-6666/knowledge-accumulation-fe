@@ -7,10 +7,9 @@ import { useConversationCache } from './useConversationCache.js'
 import { useReasoningPreference } from './useReasoningPreference.js'
 import { getContextPath } from '../models/questionTree.js'
 import { applyExplorationEvent, applyTurnSnapshot, makeLiveNode, normalizeExplorationTree, TERMINAL_TURNS } from '../models/explorationTree.js'
-import { createExplorationApi, ExplorationError, isTreeId, validateTreeName, validateTurnInput } from '../services/explorationApi.js'
-import { convertImageFileToPdf, isSupportedImage } from '../services/imagePdf.js'
+import { createExplorationApi, ExplorationError, isTreeId, validateTreeName, validateTurnInput, validateAttachments } from '../services/explorationApi.js'
 
-export function useExplorationTrees({ api = createExplorationApi(), active = () => true, onAuthenticationExpired = () => {}, convertImage = convertImageFileToPdf, userId = '', statusStorage, conversationStorage, positionStorage } = {}) {
+export function useExplorationTrees({ api = createExplorationApi(), active = () => true, onAuthenticationExpired = () => {}, userId = '', statusStorage, conversationStorage, positionStorage } = {}) {
   const trees = ref([]), treeId = ref('__new-exploration__'), selectedId = ref(null), branchAnchorId = ref(null)
   const exploration = { id: '__new-exploration__', get title() { return t('开始新探索') }, nodes: [], mainLeafId: null, loaded: true }
   const isNewExploration = computed(() => treeId.value === exploration.id)
@@ -206,12 +205,12 @@ export function useExplorationTrees({ api = createExplorationApi(), active = () 
       for (const node of normalized.nodes) {
         const existing = old?.nodes.find(item => item.id === node.id)
         if (existing && BigInt(existing.lastSequence || '0') > BigInt(node.lastSequence || '0')) {
-          const topology = { parentId: node.parentId, branchId: node.branchId, pathType: node.pathType }
+          const topology = { parentId: node.parentId, branchId: node.branchId, pathType: node.pathType, attachments: node.attachments }
           const terminal = node.status !== 'generating' ? { status: node.status, turnStatus: node.turnStatus, canInterrupt: false, processingDurationMs: node.processingDurationMs, supersededBy: node.supersededBy } : null
           Object.assign(node, existing, topology, { registered: true }, terminal)
           if (terminal) for (const step of node.process) if (step.status === 'generating') step.status = terminal.status === 'complete' ? 'complete' : 'cancelled'
         } else if (existing?.attachments?.length === node.attachments.length) {
-          node.attachments.forEach((file, index) => { const local = existing.attachments[index]; if (local.file) Object.assign(file, { name: local.file.name, file: local.file, url: local.url }) })
+          node.attachments.forEach((file, index) => { const local = existing.attachments[index]; if (local.file?.name?.toLowerCase().endsWith('.pdf')) Object.assign(file, { file: local.file, url: local.url }) })
         }
       }
       // open 是历史快照，保留当前屏幕尚未消费的新输出入场标记。
@@ -370,7 +369,7 @@ export function useExplorationTrees({ api = createExplorationApi(), active = () 
     let response
     try { response = await api.createTurn(owner.id, input, { signal: request.signal }) }
     catch (cause) {
-      if (!cause.status || cause.status >= 500) { uncertainTrees.value.add(item.treeId); throw new ExplorationError(uiText('任务提交结果尚未确认，请重新加载问答树核对后再发送'), cause.status) }
+      if (!cause.status || cause.status >= 500 && !(cause.status === 503 && typeof cause.details?.detail === 'string')) { uncertainTrees.value.add(item.treeId); throw new ExplorationError(uiText('任务提交结果尚未确认，请重新加载问答树核对后再发送'), cause.status) }
       throw cause
     }
     finally { controllers.delete(request) }
@@ -395,7 +394,7 @@ export function useExplorationTrees({ api = createExplorationApi(), active = () 
   async function sendQuestion() {
     if (treeMutation.value || submissionUncertain.value || !tree.value.loaded || submitting.value || listLoading.value || loading.value || disposed || convertingAttachments.value || !draft.value.trim() && !attachments.value.length) return false
     const key = draftKey.value, submissionOwner = treeId.value
-    const item = { id: crypto.randomUUID(), treeId: treeId.value, parentId: selectedId.value, question: draft.value.trim() || t('请分析附件图片。'), attachments: [...attachments.value], reasoningEffort: reasoningEffort.value, advanceMode: advanceMode.value }
+    const item = { id: crypto.randomUUID(), treeId: treeId.value, parentId: selectedId.value, question: draft.value.trim() || t('请分析附件。'), attachments: [...attachments.value], reasoningEffort: reasoningEffort.value, advanceMode: advanceMode.value }
     error.value = ''
     try {
       validateTurnInput({ question: item.question, attachments: item.attachments.map(file => file.file), thinkingEffort: item.reasoningEffort, mode: item.advanceMode ? 'main' : 'branch' })
@@ -473,20 +472,14 @@ export function useExplorationTrees({ api = createExplorationApi(), active = () 
     try {
       for (const file of files) {
         if (disposed) break
-        if (!isSupportedImage(file)) { failures.push(uiText('{value0}：仅支持图片', { value0: file.name })); continue }
         const list = attachmentDrafts.value[key] || [], sourceKey = JSON.stringify([file.name, file.size, file.lastModified])
         if (list.some(item => item.sourceKey === sourceKey)) continue
-        if (list.length >= 10) { failures.push(uiText('每次最多 10 个附件')); break }
         try {
-          const pdf = await convertImage(file)
-          if (disposed) break
-          // 转换期间用户可能移除附件；按最新草稿提交，并替换数组以确保首次添加也触发渲染。
-          const current = attachmentDrafts.value[key] || []
-          if (current.some(item => item.sourceKey === sourceKey)) continue
-          if (current.length >= 10) { failures.push(uiText('每次最多 10 个附件')); break }
-          if (pdf.size > 10 * 1024 * 1024 || current.reduce((total, item) => total + item.file.size, pdf.size) > 20 * 1024 * 1024) { failures.push(uiText('{value0}：PDF 超出大小限制', { value0: file.name })); continue }
-          attachmentDrafts.value[key] = [...current, { id: crypto.randomUUID(), sourceKey, file: pdf, name: pdf.name, url: makeUrl(pdf), type: 'images' }]
-        } catch { failures.push(uiText('{value0}：转换 PDF 失败', { value0: file.name })) }
+          validateAttachments([...list.map(item => item.file), file])
+          const pdf = file.name.toLowerCase().endsWith('.pdf')
+          attachmentDrafts.value[key] = [...list, { id: crypto.randomUUID(), sourceKey, file, name: file.name, url: pdf ? makeUrl(file) : '', type: pdf ? 'images' : 'source' }]
+        } catch (cause) { failures.push(cause) }
+
       }
     } finally { if (!disposed) { convertingAttachments.value = false; attachmentError.value = failures } }
   }
@@ -497,6 +490,7 @@ export function useExplorationTrees({ api = createExplorationApi(), active = () 
   }
   async function previewResource(item, signal) {
     if (item.url) return item.url
+    if (!item.fileId) throw new ExplorationError(uiText('此附件将在提交并转换完成后提供 PDF 预览'))
     if (item.type !== 'images') throw new ExplorationError(uiText('此附件暂不支持 PDF 预览'))
     const key = `${item.treeId}/${item.fileId}`
     if (resourceUrls.has(key)) return resourceUrls.get(key)

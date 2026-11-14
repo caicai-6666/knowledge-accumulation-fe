@@ -24,16 +24,16 @@
 
 以下为历史首次接入基础 exploration 时使用的脚本清单，不是后端所有能力的完整迁移清单。新环境应先核对后端[部署与初始化说明](../../../knowledge-accumulation-be/description/capability/application/docker.md)及目标库实际结构，再决定需要执行的迁移；个人助理、平台协作等能力可能另有前置条件。
 
-当时目标为 `registry` 库，基础问答按以下顺序审查初始化脚本：
+当时目标为 `registry` 库，基础问答按以下顺序审查初始化脚本。以下旧脚本已不在当前后端目录中，仅保留名称作为历史记录，不作为当前初始化指引：
 
-1. [001-question-tree.sql](../../../knowledge-accumulation-be/schema/001-question-tree.sql)
-2. [002-question-node-memories.sql](../../../knowledge-accumulation-be/schema/002-question-node-memories.sql)
-3. [004-node-persistence.sql](../../../knowledge-accumulation-be/schema/004-node-persistence.sql)
-4. [006-question-tree-kind.sql](../../../knowledge-accumulation-be/schema/006-question-tree-kind.sql)
-5. [007-question-node-path-type.sql](../../../knowledge-accumulation-be/schema/007-question-node-path-type.sql)
-6. [008-question-node-lifecycle.sql](../../../knowledge-accumulation-be/schema/008-question-node-lifecycle.sql)
-7. [009-question-tree-deletion.sql](../../../knowledge-accumulation-be/schema/009-question-tree-deletion.sql)
-8. [010-question-node-display.sql](../../../knowledge-accumulation-be/schema/010-question-node-display.sql)
+1. `001-question-tree.sql`
+2. `002-question-node-memories.sql`
+3. `004-node-persistence.sql`
+4. `006-question-tree-kind.sql`
+5. `007-question-node-path-type.sql`
+6. `008-question-node-lifecycle.sql`
+7. `009-question-tree-deletion.sql`
+8. `010-question-node-display.sql`
 
 003/005 的 MyVector 和全文检索不是基础 exploration HTTP/SSE 的必需条件。执行前再次核对表状态，发现部分表已存在时不能盲目重放或 DROP。MySQL 多文件 DDL 无整体事务回滚，应先记录结构并做好恢复准备；问答结构迁移本身不改 employees、departments、platform_admins 数据；本次后端另按其身份落库需求新增开发者记录，不覆盖原有人员。
 

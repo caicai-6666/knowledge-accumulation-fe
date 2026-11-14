@@ -13,10 +13,17 @@ export function validateTreeName(name) {
   if (typeof name !== 'string' || !name.trim() || Array.from(name.trim()).length > 200) throw new ExplorationError(uiText('问答树名称需为 1–200 个字符'))
   return name.trim()
 }
+export const ATTACHMENT_ACCEPT = '.pdf,.png,.jpg,.jpeg,.webp,.gif,.bmp,.tif,.tiff,.avif,.heic,.heif,.heics,.heifs,.hif,.doc,.docx,.xls,.xlsx'
+export const isSupportedAttachment = file => ATTACHMENT_ACCEPT.split(',').includes(file?.name?.match(/\.[^.]+$/)?.[0].toLowerCase())
+export function validateAttachments(files) {
+  if (files.length > 10 || files.some(file => !isSupportedAttachment(file) || !Number.isFinite(file.size) || file.size <= 0 || file.size > 10 * 1024 * 1024) || files.reduce((sum, file) => sum + file.size, 0) > 20 * 1024 * 1024) {
+    throw new ExplorationError(uiText('支持 PDF、图片、Word 和 Excel；最多 10 份，单份 10 MiB、合计 20 MiB，不支持空文件'))
+  }
+}
 export function validateTurnInput({ question, attachments = [], thinkingEffort, mode }) {
   if (typeof question !== 'string' || !question.trim() || Array.from(question).length > 20000) throw new ExplorationError(uiText('问题需为 1–20000 个字符'))
   if (!['low', 'medium', 'xhigh'].includes(thinkingEffort) || !['main', 'branch'].includes(mode)) throw new ExplorationError(uiText('问答模式或推理强度无效'))
-  if (attachments.length > 10 || attachments.some(file => file.type !== 'application/pdf' || !file.name?.toLowerCase().endsWith('.pdf') || !file.size || file.size > 10 * 1024 * 1024) || attachments.reduce((sum, file) => sum + file.size, 0) > 20 * 1024 * 1024) throw new ExplorationError(uiText('仅支持 PDF，每次最多 10 份，每份最多 10 MiB，合计最多 20 MiB'))
+  validateAttachments(attachments)
 }
 export function parseExplorationFrame(frame) {
   let id = '', event = 'message'
@@ -147,7 +154,8 @@ export function createExplorationApi({ storage = window.localStorage, fetch: fet
       if (input.supersedesTurnId) body.append('supersedes_turn_id', requireId(input.supersedesTurnId))
       else if (input.selectedNodeId) body.append('selected_node_id', requireId(input.selectedNodeId))
       input.attachments?.forEach(file => body.append('files', file, file.name))
-      const payload = await request(turnPath(treeId), { ...options, method: 'POST', body })
+      // 服务端逐份转换 Office，等待槽位与执行各有期限；不自动重放注册 POST。
+      const payload = await request(turnPath(treeId), { timeout: input.attachments?.length ? 30 * 60 * 1000 : 75000, ...options, method: 'POST', body })
       if (payload?.tree_id !== treeId || !isTreeId(payload.turn_id) || payload.status !== 'pending_activation' || typeof payload.can_interrupt !== 'boolean') throw new ExplorationError(uiText('任务登记响应无效，提交结果需核对，请勿重复发送'))
       return payload
     },

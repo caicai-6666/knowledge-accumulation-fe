@@ -110,7 +110,7 @@ Nginx 保留 `/knowledge-accumulation/api/` 路径和 Bearer 头，不重试任�
 
 静态压缩与管理平台按需加载更新后，已重新构建隔离验证镜像，确认 JS/CSS 的 gzip 解压内容与原始响应一致、Vary/ETag/304 正常、缺失资源及子平台前缀返回 404；生产路径下管理平台分块可正常加载。API 保留 Bearer 且不压缩，SSE 首条事件仍在结束事件前到达。该验证镜像使用测试 CorpId，正式发布应使用部署配置重新构建。
 
-外层网关应将生产 `/knowledge-accumulation/` 转发到前端 24080，并保留 HTTPS 的 `X-Forwarded-Proto`。网关也需关闭 SSE 缓冲并设置足够的空闲超时。`/knowledge-accumulation/registry` 和 `/knowledge-accumulation/contract` 必须优先转发至各自前端；当前统一入口容器对这两个前缀返回 404，不将子平台错误显示成统一入口。开发映射仍使用 Vite 和 `/dev`，生产容器不提供开发固定凭据路由。
+外层网关应将生产 `/knowledge-accumulation/` 转发到前端 24080，并保留 HTTPS 的 `X-Forwarded-Proto`。网关也需关闭 SSE 缓冲并设置足够的空闲超时。`/knowledge-accumulation/registry`、`/knowledge-accumulation/contract` 和 `/knowledge-accumulation/project-management` 必须优先转发至各自前端；当前统一入口容器对这三个前缀返回 404，不将子平台错误显示成统一入口。开发映射仍使用 Vite 和 `/dev`，生产容器不提供开发固定凭据路由。
 
 代理和缓存指令以 [Nginx 代理模块](https://nginx.org/en/docs/http/ngx_http_proxy_module.html)及[响应头模块](https://nginx.org/en/docs/http/ngx_http_headers_module.html)为参考。
 
@@ -121,3 +121,5 @@ Nginx 为 `/knowledge-accumulation/assets/` 下带内容哈希的图标及其他
 统一入口注册 `icon-cache-sw.js`，在 HTTPS 或 localhost 且浏览器支持 Service Worker 时，为本地图标、图片及回答中的外站图标提供 Cache Storage 持久缓存。图标首次受控加载后可跨刷新复用，最长 7 天、最多 48 项，同一 URL 的并发加载合并；带版本哈希的构建资源更新后使用新 URL。外站支持 opaque 图片响应，不要求站点开放 CORS；请求不带 Cookie 或业务 Bearer。可读的失败响应及声明 no-store 的响应不落缓存；opaque 响应受浏览器限制，无法检查状态码或缓存头。
 
 开发模式的 `src/assets/` 原图不进入七天图片缓存，交由浏览器 HTTP 缓存按 ETag 校验，避免替换图片后继续显示旧版本。缓存仅处理统一入口页面发起的公共图片请求，不缓存子平台页面、接口、鉴权头像、附件、HTML 或脚本；开发与生产缓存按各自 scope 隔离。内联 SVG 图标不产生网络请求，无需额外缓存。浏览器禁止缓存或注册失败时回退正常图片加载，不影响登录及问答。网关需将该脚本按静态 JavaScript 正常返回，不能回退成 HTML；不应给 Service Worker 脚本设置长期 immutable 缓存。
+
+附件注册由后端顺序转换原件，浏览器对带附件的注册请求最多等待 30 分钟；外层网关也应允许该等待时长，不自动重试 POST。容器 API 代理已有 3600 秒读取超时；外层网关和真实 Office 转换链路仍需部署时验收。

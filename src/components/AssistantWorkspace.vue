@@ -17,6 +17,7 @@ import DeleteQuestionTreeDialog from './DeleteQuestionTreeDialog.vue'
 import { useExplorationTrees } from '../composables/useExplorationTrees.js'
 import { useAssistantPanelResize } from '../composables/useAssistantPanelResize.js'
 import { createMessageScrollFollower } from '../services/messageScrollFollower.js'
+import { ATTACHMENT_ACCEPT } from '../services/explorationApi.js'
 import { clipboardFiles } from '../services/clipboardFiles.js'
 
 const props = defineProps({ active: Boolean, user: Object })
@@ -228,6 +229,10 @@ function chooseAttachments(event) {
   event.target.value = ''
   void addAttachments(files)
 }
+function dropAttachments(event) {
+  if (!props.active || submitting.value || convertingAttachments.value) return
+  void addAttachments(Array.from(event.dataTransfer?.files || []))
+}
 function handleComposerPaste(event) {
   const files = clipboardFiles(event.clipboardData)
   if (!files.length) return
@@ -323,7 +328,7 @@ onBeforeUnmount(() => { scrollDisposed = true; ++positioningRevision; scrollFoll
         </div>
       </div>
 
-      <form class="agent-chat__composer" @submit.prevent="send">
+      <form class="agent-chat__composer" @submit.prevent="send" @dragover.prevent @drop.prevent="dropAttachments">
 
         <div class="agent-chat__composer-accessories">
           <TransitionGroup tag="ul" name="queued-prompt" class="agent-chat__prompt-queue" :aria-label="t('待发送消息')">
@@ -344,12 +349,12 @@ onBeforeUnmount(() => { scrollDisposed = true; ++positioningRevision; scrollFoll
         <textarea :disabled="submitting || Boolean(treeMutation)" ref="composer" v-model="draft" :aria-label="t('输入问题')" :placeholder="isBranching ? t('换一个角度，从这里继续探索…') : t('有什么想了解的？')" :rows="stacked ? 2 : 3" enterkeyhint="enter" maxlength="20000" @keydown="handleInputKey" @paste="handleComposerPaste"></textarea>
         <div class="agent-chat__composer-actions">
           <div class="agent-chat__attachment-controls">
-            <button class="agent-chat__attach" type="button" :disabled="Boolean(treeMutation) || submitting || convertingAttachments" :aria-label="t('添加图片附件')" :title="t('添加图片，自动转为 PDF')" @click="attachmentInput?.click()">
+            <button class="agent-chat__attach" type="button" :disabled="Boolean(treeMutation) || submitting || convertingAttachments" :aria-label="t('添加附件')" :title="t('支持 PDF、图片、Word 和 Excel，服务端转换为 PDF')" @click="attachmentInput?.click()">
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg><span v-if="attachments.length" aria-hidden="true">{{ attachments.length }}</span>
             </button>
           </div>
-          <input ref="attachmentInput" type="file" multiple accept="image/png,image/jpeg,image/webp,image/gif,image/bmp,image/avif,.png,.jpg,.jpeg,.webp,.gif,.bmp,.avif" hidden @change="chooseAttachments" />
-          <span role="status">{{ submitting ? t('正在提交…') : cancelling ? t('正在停止…') : convertingAttachments ? t('正在转换为 PDF…') : pendingHere ? hasComposerInput ? t('Shift + Enter 加入队列') : t('正在生成回答…') : t('Enter 换行 · 点击按钮发送') }}</span>
+          <input ref="attachmentInput" type="file" multiple :accept="ATTACHMENT_ACCEPT" hidden @change="chooseAttachments" />
+          <span role="status">{{ submitting ? t('正在提交，上传并处理附件…') : cancelling ? t('正在停止…') : convertingAttachments ? t('正在检查附件…') : pendingHere ? hasComposerInput ? t('Shift + Enter 加入队列') : t('正在生成回答…') : t('Enter 换行 · 点击按钮发送') }}</span>
           <div class="agent-chat__submit-controls">
             <AdvanceModeSwitch v-model="advanceMode" :disabled="!canAdvance" :active="active" />
             <div class="agent-chat__reasoning-send">

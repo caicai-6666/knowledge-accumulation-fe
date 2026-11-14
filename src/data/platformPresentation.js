@@ -1,7 +1,12 @@
 const contractIconUrl = new URL('../assets/contract.webp', import.meta.url).href
 const registryIconUrl = new URL('../assets/registry.webp', import.meta.url).href
+const projectManagementIconUrl = new URL('../assets/project-management.webp', import.meta.url).href
 
 const presentation = {
+  'project-management': {
+    iconUrl: projectManagementIconUrl,
+    entryUrl: `${import.meta.env.BASE_URL.replace(/\/$/, '')}/project-management/`,
+  },
   'contract-pheno': {
     iconUrl: contractIconUrl, accent: '#7468d5',
     entryUrl: `${import.meta.env.BASE_URL.replace(/\/$/, '')}/contract`,
