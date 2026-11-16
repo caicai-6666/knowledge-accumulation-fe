@@ -88,10 +88,10 @@ export function createAuthentication({ mode, apiBase, storage, fetch: fetcher = 
     }
   }
 
-  async function authenticate({ signal } = {}) {
+  async function authenticate({ signal, refreshIdentity = false } = {}) {
     throwIfAborted(signal)
     const token = readAccessToken(storage)
-    if (token) {
+    if (token && !(mode === 'production' && refreshIdentity)) {
       try {
         const user = await currentUser(token, signal)
         throwIfAborted(signal)

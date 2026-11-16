@@ -10,23 +10,25 @@ export function useAuthentication() {
   let pending
   let controller
   let authentication
+  const mode = import.meta.env.VITE_AUTH_MODE || (import.meta.env.DEV ? 'development' : 'production')
+  const inDingTalk = mode === 'production' && /DingTalk/i.test(navigator.userAgent)
 
-  function authenticate() {
+  function authenticate({ refreshIdentity = inDingTalk } = {}) {
     if (pending) return pending
     controller = new AbortController()
     const signal = controller.signal
-    if (state.value !== 'ready') state.value = 'loading'
+    if (refreshIdentity || state.value !== 'ready') state.value = 'loading'
     error.value = ''
     pending = Promise.resolve().then(async () => {
       try {
         // localStorage 的属性访问本身也可能被浏览器策略拒绝。
         authentication ||= createAuthentication({
-          mode: import.meta.env.VITE_AUTH_MODE || (import.meta.env.DEV ? 'development' : 'production'),
+          mode,
           apiBase: KNOWLEDGE_API_BASE_PATH,
           storage: window.localStorage,
           requestCode: options => requestDingTalkCode({ ...options, corpId: import.meta.env.VITE_DINGTALK_CORP_ID }),
         })
-        const identity = await authentication.authenticate({ signal })
+        const identity = await authentication.authenticate({ signal, refreshIdentity })
         if (!signal.aborted) { user.value = identity; state.value = 'ready' }
       } catch (failure) {
         if (!signal.aborted) {
@@ -45,22 +47,34 @@ export function useAuthentication() {
     controller?.abort()
     pending = null
     state.value = 'loading'
-    authenticate()
+    authenticate({ refreshIdentity: false })
   }
 
   function revalidate() {
-    if (document.visibilityState === 'visible' && state.value === 'ready') authenticate()
+    if (document.visibilityState === 'visible') authenticate()
+  }
+
+  function onVisibilityChange() {
+    if (document.visibilityState === 'hidden' && inDingTalk) {
+      controller?.abort()
+      pending = null
+      state.value = 'loading'
+    } else revalidate()
   }
 
   onMounted(() => {
     authenticate()
     window.addEventListener('storage', syncSharedToken)
     window.addEventListener('focus', revalidate)
+    window.addEventListener('pageshow', revalidate)
+    document.addEventListener('visibilitychange', onVisibilityChange)
   })
   onBeforeUnmount(() => {
     controller?.abort()
     window.removeEventListener('storage', syncSharedToken)
     window.removeEventListener('focus', revalidate)
+    window.removeEventListener('pageshow', revalidate)
+    document.removeEventListener('visibilitychange', onVisibilityChange)
   })
   return { state, user, error, retry: authenticate }
 }
