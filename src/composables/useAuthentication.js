@@ -10,6 +10,7 @@ export function useAuthentication() {
   let pending
   let controller
   let authentication
+  let resumeRequired = false
   const mode = import.meta.env.VITE_AUTH_MODE || (import.meta.env.DEV ? 'development' : 'production')
   const inDingTalk = mode === 'production' && /DingTalk/i.test(navigator.userAgent)
 
@@ -50,30 +51,44 @@ export function useAuthentication() {
     authenticate({ refreshIdentity: false })
   }
 
+  function markInactive() { resumeRequired = true }
+
   function revalidate() {
-    if (document.visibilityState === 'visible') authenticate()
+    // 初次获得窗口焦点不代表账号发生变化；仅真实离开后返回才复核。
+    if (!resumeRequired || document.visibilityState !== 'visible') return
+    resumeRequired = false
+    authenticate()
+  }
+
+  function onPageShow(event) {
+    if (event.persisted) { markInactive(); revalidate() }
   }
 
   function onVisibilityChange() {
-    if (document.visibilityState === 'hidden' && inDingTalk) {
-      controller?.abort()
-      pending = null
-      state.value = 'loading'
+    if (document.visibilityState === 'hidden') {
+      markInactive()
+      if (inDingTalk) {
+        controller?.abort()
+        pending = null
+        state.value = 'loading'
+      }
     } else revalidate()
   }
 
   onMounted(() => {
     authenticate()
     window.addEventListener('storage', syncSharedToken)
+    window.addEventListener('blur', markInactive)
     window.addEventListener('focus', revalidate)
-    window.addEventListener('pageshow', revalidate)
+    window.addEventListener('pageshow', onPageShow)
     document.addEventListener('visibilitychange', onVisibilityChange)
   })
   onBeforeUnmount(() => {
     controller?.abort()
     window.removeEventListener('storage', syncSharedToken)
+    window.removeEventListener('blur', markInactive)
     window.removeEventListener('focus', revalidate)
-    window.removeEventListener('pageshow', revalidate)
+    window.removeEventListener('pageshow', onPageShow)
     document.removeEventListener('visibilitychange', onVisibilityChange)
   })
   return { state, user, error, retry: authenticate }
