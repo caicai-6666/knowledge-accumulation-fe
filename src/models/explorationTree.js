@@ -107,7 +107,9 @@ export function applyTurnSnapshot(node, snapshot) {
   node.answer = ''
   applyStatus(node, snapshot)
   for (const message of snapshot.messages) applyMessage(node, 'message.completed', message)
-  if (snapshot.progress && !node.process.some(step => step.kind === 'progress' && step.label === snapshot.progress.message && step.type === snapshot.progress.type)) applyProgress(node, snapshot.progress, `snapshot-progress-${snapshot.last_sequence}`)
+  // 快照的最近动作可能与历史中已结束动作同名，仍需恢复当前执行状态。
+  const lastStep = node.process[node.process.length - 1]
+  if (snapshot.progress && !(lastStep?.kind === 'progress' && lastStep.status === 'generating' && lastStep.label === snapshot.progress.message && lastStep.type === snapshot.progress.type)) applyProgress(node, snapshot.progress, `snapshot-progress-${snapshot.last_sequence}`)
   if (TERMINAL_TURNS.has(snapshot.status)) settleProcess(node, snapshot.status === 'completed' ? 'complete' : 'cancelled')
   node.error = snapshot.error?.message || ''
   node.lastSequence = String(snapshot.last_sequence)
